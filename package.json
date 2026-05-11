@@ -9,15 +9,128 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "code-sync-client-unip.helloWorld",
-        "title": "Hello World"
+        "command": "code-sync.joinRoom",
+        "title": "CodeSync: Unirse a una Sala",
+        "icon": "$(broadcast)"
+      },
+      {
+        "command": "code-sync.showHelp",
+        "title": "CodeSync: Ver Instrucciones",
+        "icon": "$(book)"
+      },
+      {
+        "command": "code-sync.openStudentFile",
+        "title": "Abrir Archivo del Estudiante"
+      },
+      {
+        "command": "code-sync.previewHtml",
+        "title": "CodeSync: Ver Vista Previa (HTML)",
+        "icon": "$(browser)"
+      },
+      {
+        "command": "code-sync.sendActiveFileToAll",
+        "title": "CodeSync: Enviar archivo actual a TODOS",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "code-sync.sendActiveFileToStudent",
+        "title": "CodeSync: Enviar archivo actual a este estudiante",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "code-sync.sendAllTabsToAll",
+        "title": "CodeSync: Enviar todas las pestañas a la clase",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "code-sync.startTimer",
+        "title": "CodeSync: Iniciar Desafío con Tiempo",
+        "icon": "$(watch)"
+      },
+      {
+        "command": "code-sync.sendFullProjectSnapshot",
+        "title": "CodeSync: Realizar Entrega Final"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "code-sync.sendActiveFileToAll",
+          "when": "isCodeSyncTeacher",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "code-sync.joinRoom",
+          "when": "view == studentsList",
+          "group": "navigation@1"
+        },
+        {
+          "command": "code-sync.showHelp",
+          "when": "view == studentsList",
+          "group": "navigation@2"
+        },
+        {
+          "command": "code-sync.startTimer",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "navigation@3"
+        },
+        {
+          "command": "code-sync.sendAllTabsToAll",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "code-sync.previewHtml",
+          "when": "view == studentsList && viewItem == file",
+          "group": "inline"
+        },
+        {
+          "command": "code-sync.sendActiveFileToStudent",
+          "when": "view == studentsList && viewItem == student",
+          "group": "inline"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "studentsList",
+        "when": "!isCodeSyncJoined",
+        "contents": "🚀 Bienvenido a CodeSync\nÚnete a una sala para comenzar.\n\n[$(broadcast) Unirse a Sala](command:code-sync.joinRoom)\n\n[$(book) Leer ayuda](command:code-sync.showHelp)"
+      },
+      {
+        "view": "studentsList",
+        "when": "isCodeSyncStudent",
+        "contents": "✨ Conectado como Estudiante\nEl profesor está supervisando tu progreso.\n\nEstado: Sincronizando en vivo $(sync~spin)\n\n[$(book) Instrucciones de uso](command:code-sync.showHelp)\n\n[$(sign-out) Salir de la sala](command:workbench.action.reloadWindow)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codesync-explorer",
+          "title": "CodeSync Class",
+          "icon": "$(broadcast)"
+        }
+      ]
+    },
+    "views": {
+      "codesync-explorer": [
+        {
+          "id": "studentsList",
+          "name": "CodeSync: Classroom"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -31,16 +144,19 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.118.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "typescript-eslint": "^8.56.1",
-    "eslint": "^9.39.3",
-    "typescript": "^5.9.3",
-    "ts-loader": "^9.5.4",
-    "webpack": "^5.105.3",
-    "webpack-cli": "^6.0.1",
+    "@types/node": "^22.19.18",
+    "@types/vscode": "^1.90.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.14.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.13.0",
+    "webpack": "^5.96.1",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
   }
 }
