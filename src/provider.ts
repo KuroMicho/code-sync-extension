@@ -21,6 +21,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
    * Método principal de VS Code: Se dispara cuando el profe abre una pestaña 'codesync://'
    */
   public provideTextDocumentContent(uri: vscode.Uri): string {
+    // Verificamos si ya tenemos el contenido en caché
     const content = this.contentMap.get(uri.toString());
 
     if (content === undefined) {
@@ -28,14 +29,15 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
         `[CodeSync Provider]: Solicitando contenido inicial para: ${uri.path}`,
       );
 
-      // Pedimos el contenido al estudiante de forma asíncrona
+      // Pedimos el contenido al estudiante de forma asíncrona a través del socket
       this.requestInitialContent(uri);
 
-      // Mensaje elegante de carga en el editor
+      // Mensaje temporal que verá el profesor mientras llega la respuesta
       return [
         "// [CodeSync]: Sincronizando código desde la PC del estudiante...",
-        "// La vista se actualizará automáticamente en cuanto el alumno responda.",
-        ,
+        "// La vista se actualizará automáticamente en segundos.",
+        "// ----------------------------------------------------------------------",
+        "// Nota: El alumno debe tener el archivo en su espacio de trabajo.",
       ].join("\n");
     }
 
@@ -43,27 +45,34 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   }
 
   /**
-   * Actualiza el contenido en memoria y fuerza el refresco visual.
+   * Actualiza el contenido en memoria y fuerza el refresco visual en el editor.
    */
   public updateContent(uri: vscode.Uri, content: string) {
     this.contentMap.set(uri.toString(), content);
 
-    // Notificamos a VS Code que el documento cambió para que vuelva a renderizar
+    // Notificamos a VS Code que el documento cambió para que vuelva a renderizar el texto
     this._onDidChange.fire(uri);
 
-    console.log(`[CodeSync Provider]: Editor actualizado -> ${uri.path}`);
+    console.log(`[CodeSync Provider]: Contenido actualizado para: ${uri.path}`);
   }
 
   /**
-   * LIMPIEZA DE MEMORIA: Elimina todos los archivos guardados de un estudiante.
-   * Se debe llamar desde socket.ts cuando un alumno se desconecta.
+   * LIMPIEZA DE MEMORIA: Elimina todos los archivos guardados de un estudiante específico.
+   * Se invoca cuando el alumno se desconecta.
    */
   public deleteStudentContent(studentId: string) {
     let count = 0;
-    for (const key of this.contentMap.keys()) {
-      if (key.includes(`://${studentId}/`)) {
-        this.contentMap.delete(key);
-        count++;
+    for (const [key, _] of this.contentMap) {
+      try {
+        const uri = vscode.Uri.parse(key);
+        // Comparamos el authority (socketId) de forma precisa
+        if (uri.authority === studentId) {
+          this.contentMap.delete(key);
+          count++;
+        }
+      } catch (e) {
+        // En caso de claves malformadas, simplemente las saltamos
+        continue;
       }
     }
     console.log(
@@ -72,12 +81,22 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   }
 
   /**
+   * RESET TOTAL: Limpia todo el caché de archivos almacenados.
+   * Crucial para evitar "fantasmas" al cambiar de sala.
+   */
+  public clearAll() {
+    this.contentMap.clear();
+    console.log(
+      "[CodeSync Provider]: Caché de archivos vaciado por cambio de sesión.",
+    );
+  }
+
+  /**
    * Solicita el contenido inicial al socket del estudiante.
    */
   private requestInitialContent(uri: vscode.Uri) {
     const studentId = uri.authority;
-
-    // Normalización de ruta: removemos la barra inicial y espacios
+    // Normalización: quitamos las barras iniciales de la ruta
     const filePath = uri.path.replace(/^\/+/, "").trim();
 
     if (!studentId || !filePath) return;
@@ -92,7 +111,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
    * Helper estático para generar URIs consistentes: codesync://[socketId]/[ruta]
    */
   public static createUri(studentId: string, filePath: string): vscode.Uri {
-    // Aseguramos que la ruta comience con una sola barra
+    // Aseguramos que la ruta comience con una sola barra para el esquema de URI
     const normalizedPath = filePath.startsWith("/") ? filePath : `/${filePath}`;
 
     return vscode.Uri.parse(

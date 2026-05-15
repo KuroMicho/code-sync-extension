@@ -1,10 +1,26 @@
-# 🚀 Guía de CodeSync para Estudiantes
+# 🚀 Guía Rápida: CodeSync
 
-¡Bienvenido al laboratorio! Sigue estos pasos:
+Sigue estos pasos para sincronizarte con la clase del **Profe**:
 
-1. **Conectarte**: Pulsa el botón `$(broadcast)` en la barra lateral.
-2. **Sala**: Ingresa el ID que te dio el **Profe Kevin**.
-3. **Nombre**: Usa tu nombre real para que el profe te identifique.
-4. **Trabajo**: Todo lo que escribas se sincronizará automáticamente.
+### 1. Conectarse
 
-> **Nota:** Si creas archivos nuevos o imágenes, el profe los verá al instante.
+- Busca el icono `$(broadcast)` en la barra lateral.
+- Ingresa el **ID de la Sala** que te dará el profesor.
+- Ingresa tu **Nombre Completo** (para poder calificarte).
+
+### 2. Sincronización
+
+- **Es automática**: Todo lo que escribas o crees se enviará al profe en tiempo real.
+- No te preocupes por `node_modules`, el sistema los ignora para ser más veloz.
+
+### 3. El Desafío (Timer)
+
+Si el profe inicia un reto, verás un reloj flotante en tu código:
+
+- 🟢 **Cian**: Tienes tiempo.
+- 🔴 **Rosa Neón**: Quedan menos de 30 segundos.
+- 🏁 **0:00**: El tiempo se agota y tu proyecto **se envía solo**. ¡Asegúrate de tener todo listo!
+
+---
+
+> **Tip:** Si el reloj te estorba o no lo ves, cambia de pestaña y volverá a aparecer en la esquina superior.

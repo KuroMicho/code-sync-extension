@@ -1,5 +1,6 @@
 {
   "name": "code-sync-client-unip",
+  "publisher": "kevin-rodriguez",
   "displayName": "code-sync-client",
   "description": "code sync",
   "version": "0.0.1",
@@ -17,12 +18,17 @@
     "commands": [
       {
         "command": "code-sync.joinRoom",
-        "title": "CodeSync: Unirse a una Sala",
+        "title": "🔌 CodeSync: Unirse a una Sala",
         "icon": "$(broadcast)"
       },
       {
+        "command": "code-sync.openChat",
+        "title": "📟 CodeSync: Abrir Chat Cyber-Room",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "code-sync.showHelp",
-        "title": "CodeSync: Ver Instrucciones",
+        "title": "📖 CodeSync: Ver Instrucciones",
         "icon": "$(book)"
       },
       {
@@ -46,17 +52,30 @@
       },
       {
         "command": "code-sync.sendAllTabsToAll",
-        "title": "CodeSync: Enviar todas las pestañas a la clase",
+        "title": "🚀 CodeSync: Enviar todas las pestañas a la clase",
         "icon": "$(repo-push)"
       },
       {
         "command": "code-sync.startTimer",
-        "title": "CodeSync: Iniciar Desafío con Tiempo",
+        "title": "⏳ Iniciar Cronómetro de Desafío",
         "icon": "$(watch)"
+      },
+      {
+        "command": "code-sync.stopTimer",
+        "title": "⚠️ Cancelar Cronómetro Activo"
       },
       {
         "command": "code-sync.sendFullProjectSnapshot",
         "title": "CodeSync: Realizar Entrega Final"
+      },
+      {
+        "command": "code-sync.requestHelp",
+        "title": "Pedir Ayuda al Profe",
+        "icon": "$(question)"
+      },
+      {
+        "command": "code-sync.resolveHelp",
+        "title": "Marcar como Atendido"
       }
     ],
     "menus": {
@@ -71,22 +90,42 @@
         {
           "command": "code-sync.joinRoom",
           "when": "view == studentsList",
+          "group": "navigation"
+        },
+        {
+          "command": "code-sync.openChat",
+          "when": "view == studentsList && isCodeSyncStudent",
           "group": "navigation@1"
         },
         {
-          "command": "code-sync.showHelp",
-          "when": "view == studentsList",
+          "command": "code-sync.requestHelp",
+          "when": "view == studentsList && isCodeSyncStudent",
           "group": "navigation@2"
+        },
+        {
+          "command": "code-sync.showHelp",
+          "when": "view == studentsList && isCodeSyncStudent",
+          "group": "navigation@3"
+        },
+        {
+          "command": "code-sync.openChat",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "1_chat"
         },
         {
           "command": "code-sync.startTimer",
           "when": "view == studentsList && isCodeSyncTeacher",
-          "group": "navigation@3"
+          "group": "2_challenge"
         },
         {
           "command": "code-sync.sendAllTabsToAll",
           "when": "view == studentsList && isCodeSyncTeacher",
-          "group": "navigation@4"
+          "group": "3_sync"
+        },
+        {
+          "command": "code-sync.showHelp",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "4_help"
         }
       ],
       "view/item/context": [
@@ -98,6 +137,11 @@
         {
           "command": "code-sync.sendActiveFileToStudent",
           "when": "view == studentsList && viewItem == student",
+          "group": "inline"
+        },
+        {
+          "command": "code-sync.resolveHelp",
+          "when": "view == studentsList && viewItem == student-help",
           "group": "inline"
         }
       ]
