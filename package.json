@@ -27,6 +27,11 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "code-sync.openDashboard",
+        "title": "📊 CodeSync: Abrir Monitor de Sala (Dashboard)",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "code-sync.showHelp",
         "title": "📖 CodeSync: Ver Instrucciones",
         "icon": "$(book)"
@@ -62,7 +67,8 @@
       },
       {
         "command": "code-sync.stopTimer",
-        "title": "⚠️ Cancelar Cronómetro Activo"
+        "title": "⚠️ Cancelar Cronómetro Activo",
+        "icon": "$(close)"
       },
       {
         "command": "code-sync.sendFullProjectSnapshot",
@@ -115,7 +121,12 @@
         {
           "command": "code-sync.startTimer",
           "when": "view == studentsList && isCodeSyncTeacher",
-          "group": "2_challenge"
+          "group": "2_challenge@1"
+        },
+        {
+          "command": "code-sync.stopTimer",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "2_challenge@2"
         },
         {
           "command": "code-sync.sendAllTabsToAll",
@@ -123,9 +134,14 @@
           "group": "3_sync"
         },
         {
+          "command": "code-sync.openDashboard",
+          "when": "view == studentsList && isCodeSyncTeacher",
+          "group": "4_dashboard"
+        },
+        {
           "command": "code-sync.showHelp",
           "when": "view == studentsList && isCodeSyncTeacher",
-          "group": "4_help"
+          "group": "5_help"
         }
       ],
       "view/item/context": [

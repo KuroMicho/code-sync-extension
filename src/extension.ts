@@ -3,8 +3,9 @@ import { SocketManager } from "./socket";
 import { CodeSyncProvider } from "./provider";
 import { StudentDataProvider, StudentTreeItem } from "./treeView";
 import { CodeSyncChatPanel } from "./chatPanel";
+import { CodeSyncDashboard } from "./dashboardPanel";
 
-// --- VARIABLES GLOBALES ---
+// --- VARIABLES GLOBALES DE SESIÓN ---
 let socketManager: SocketManager;
 let treeDataProvider: StudentDataProvider;
 let codeProvider: CodeSyncProvider;
@@ -13,51 +14,51 @@ let changeTimeout: NodeJS.Timeout | undefined;
 let currentRoomId: string | undefined;
 let currentUserName: string | undefined;
 let isTeacher: boolean = false;
+let keystrokeCount = 0;
+let wmpInterval: NodeJS.Timeout | undefined;
 
-// Exportamos para que socket.ts pueda refrescar las webviews en tiempo real
+// Exportación para que el SocketManager controle de forma reactiva las actualizaciones visuales
 export const previews = new Map<string, vscode.WebviewPanel>();
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log("--- [CodeSync]: Sistema Activado ---");
+  console.log("--- [CodeSync]: Sistema Activado Correctamente ---");
 
-  // 0. RESET DE INTERFAZ (Seguridad al iniciar)
+  // 0. RESET DE CONTEXTOS DE INTERFAZ (Garantiza consistencia estética al arrancar)
   vscode.commands.executeCommand("setContext", "isCodeSyncJoined", false);
   vscode.commands.executeCommand("setContext", "isCodeSyncTeacher", false);
   vscode.commands.executeCommand("setContext", "isCodeSyncStudent", false);
 
-  // 1. INICIALIZAR CORE
+  // 1. INICIALIZACIÓN DEL NÚCLEO (Cambiar localhost por tu IP de red local en el aula)
   socketManager = new SocketManager("http://localhost:3000", context);
   codeProvider = new CodeSyncProvider(socketManager);
   treeDataProvider = new StudentDataProvider();
 
-  // Conectamos los proveedores al gestor de sockets
+  // Inyección cruzada de dependencias
   socketManager.setProviders(codeProvider, treeDataProvider);
 
-  // --- FUNCIONES DE APOYO (HELPERS) ---
+  // --- FUNCIONES DE APOYO (HELPERS DE FLUJO) ---
 
   /**
-   * (Alumno) Envía la lista de nombres de archivos para el árbol visual.
+   * (Modo Estudiante): Escanea el espacio de trabajo actual y reporta el árbol al profesor.
    */
   const refreshAndSendTree = async () => {
     if (isTeacher || !currentRoomId || !currentUserName) return;
 
-    if (currentRoomId && currentUserName) {
-      const files = await vscode.workspace.findFiles(
-        "**/*",
-        "**/node_modules/**",
-      );
-      const fileList = files.map((f) => vscode.workspace.asRelativePath(f));
+    const files = await vscode.workspace.findFiles(
+      "**/*",
+      "**/node_modules/**",
+    );
+    const fileList = files.map((f) => vscode.workspace.asRelativePath(f));
 
-      socketManager.emit("refresh-file-tree", {
-        roomId: currentRoomId,
-        name: currentUserName,
-        files: fileList,
-      });
-    }
+    socketManager.emit("refresh-file-tree", {
+      roomId: currentRoomId,
+      name: currentUserName,
+      files: fileList,
+    });
   };
 
   /**
-   * (Docente) Envía un archivo específico codificado en Base64.
+   * (Modo Docente): Lee un archivo físico local y lo transmite codificado en Base64.
    */
   async function sendFile(uri: vscode.Uri, targetStudentId?: string) {
     try {
@@ -75,12 +76,15 @@ export function activate(context: vscode.ExtensionContext) {
 
       return fileName;
     } catch (err) {
-      console.error(`[CodeSync]: Error al leer archivo: ${uri.fsPath}`, err);
+      console.error(
+        `[CodeSync]: Error al procesar archivo de transmisión: ${uri.fsPath}`,
+        err,
+      );
       return null;
     }
   }
 
-  // 2. CONFIGURAR STATUS BAR PRINCIPAL
+  // 2. CONTEXTO DE LA BARRA DE ESTADO PRINCIPAL
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     100,
@@ -89,41 +93,99 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.text = "$(broadcast) CodeSync: Conectar";
   statusBarItem.show();
 
-  // 3. REGISTRAR VISTAS (TreeView)
+  // 3. REGISTRO ESTRUCTURAL DEL ÁRBOL LATERAL JERÁRQUICO
   const treeView = vscode.window.createTreeView("studentsList", {
     treeDataProvider: treeDataProvider,
     showCollapseAll: true,
   });
 
-  // --- COMANDOS PRINCIPALES ---
+  // --- REGISTRO DE TELEMETRÍA (MÉTRICAS LOCALES) ---
 
-  // Comando: Unirse a Sala
+  /**
+   * (Modo Estudiante): Mide la velocidad de tecleo y activa banderas si hay copy-paste masivo.
+   */
+  const startWpmTracker = () => {
+    if (wmpInterval) clearInterval(wmpInterval);
+
+    wmpInterval = setInterval(() => {
+      if (!currentRoomId || isTeacher) return;
+
+      // Fórmula estándar: 5 caracteres equivalen a 1 palabra promedio.
+      // Como medimos en ciclos de 5 segundos, multiplicamos por 12 para proyectarlo a 1 minuto (60s).
+      const words = keystrokeCount / 5;
+      const currentWPM = Math.round(words * 12);
+
+      // Flag de seguridad: Si introduce más de 150 caracteres limpios en 5s, es Copy-Paste
+      const detectedCopyPaste = keystrokeCount > 150;
+
+      socketManager.emit("student-wpm-update", {
+        roomId: currentRoomId,
+        wpm: currentWPM,
+        isCopyPaste: detectedCopyPaste,
+      });
+
+      // Resetear contador local para los próximos 5 segundos
+      keystrokeCount = 0;
+    }, 5000);
+  };
+
+  // --- REGISTRO DE COMANDOS DE LA EXTENSIÓN ---
+
+  // Comando: Autenticación y acceso a Salas
   let joinCommand = vscode.commands.registerCommand(
     "code-sync.joinRoom",
     async () => {
+      // 1. INPUT: ID DE LA SALA
       const roomId = await vscode.window.showInputBox({
-        prompt: "ID de la Sala",
+        title: "🔑 Conectarse a la Clase",
+        prompt: "Escribe el código de la sala que te dio el profesor",
+        placeHolder: "Ejemplo: CLASE-AULA3, PROGRAMACION2",
         ignoreFocusOut: true,
+        validateInput: (value) => {
+          return value.trim()
+            ? null
+            : "❌ Por favor, escribe el código de la sala para poder ingresar.";
+        },
       });
+
+      if (!roomId) return; // Cancela de forma limpia si presionan ESC
+
+      // 2. INPUT: NOMBRE DEL ESTUDIANTE
       const name = await vscode.window.showInputBox({
-        prompt: "Tu Nombre Completo",
+        title: "👤 Tu Nombre",
+        prompt:
+          "Escribe tu nombre y apellido completo para que el profe te pueda calificar",
+        placeHolder: "Ejemplo: Carlos Mendoza",
         ignoreFocusOut: true,
+        validateInput: (value) => {
+          if (!value.trim())
+            return "❌ Tu nombre es obligatorio para que tus entregas se guarden con tu nota.";
+          if (value.trim().length < 3)
+            return "❌ Por favor, escribe tu nombre completo.";
+          return null;
+        },
       });
 
       if (roomId && name) {
-        // Limpieza profunda de sesión anterior
+        // Limpieza atómica de estados locales residuales de sesiones previas
         treeDataProvider.clearAll();
         codeProvider.clearAll();
         previews.forEach((panel) => panel.dispose());
         previews.clear();
 
         currentRoomId = roomId;
-        currentUserName = name;
+        const inputName = name.trim();
 
-        isTeacher =
-          name.toLowerCase().includes("draconisking") ||
-          name.toLowerCase().includes("profe");
+        if (inputName.endsWith("#unipx")) {
+          isTeacher = true;
+          // Limpiamos la firma para que en logs, chats y UI te muestre impecable de forma pública
+          currentUserName = inputName.replace("#unipx", "").trim();
+        } else {
+          isTeacher = false;
+          currentUserName = inputName;
+        }
 
+        // Inyección de contextos condicionales para la reactividad del package.json
         vscode.commands.executeCommand("setContext", "isCodeSyncJoined", true);
         vscode.commands.executeCommand(
           "setContext",
@@ -136,7 +198,11 @@ export function activate(context: vscode.ExtensionContext) {
           !isTeacher,
         );
 
-        socketManager.joinRoom(roomId, name, isTeacher ? "teacher" : "student");
+        socketManager.joinRoom(
+          roomId,
+          currentUserName,
+          isTeacher ? "teacher" : "student",
+        );
 
         if (isTeacher) {
           statusBarItem.text = `$(shield) Profesor: ${roomId}`;
@@ -148,16 +214,18 @@ export function activate(context: vscode.ExtensionContext) {
           statusBarItem.backgroundColor = new vscode.ThemeColor(
             "statusBarItem.remoteBackground",
           );
+          startWpmTracker(); // Inicializa el heartbeat de analíticas
           await refreshAndSendTree();
         }
+
         vscode.window.showInformationMessage(
-          `Conectado como ${isTeacher ? "Docente" : "Estudiante"}`,
+          `Conectado con éxito como ${isTeacher ? "Docente" : "Estudiante"}`,
         );
       }
     },
   );
 
-  // Comando: Abrir archivo del estudiante (Solo Profe)
+  // Comando: Visualización de ficheros remotos (Solo Docente)
   let openFileCommand = vscode.commands.registerCommand(
     "code-sync.openStudentFile",
     async (studentId: string, filePath: string) => {
@@ -167,17 +235,18 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.showTextDocument(doc, { preview: false });
       } catch {
         vscode.window.showErrorMessage(
-          `No se pudo abrir el archivo virtual: ${filePath}`,
+          `No se pudo abrir el búfer virtual de: ${filePath}`,
         );
       }
     },
   );
 
-  // Comando: Vista previa HTML en tiempo real (Solo Profe)
+  // Comando: Hot-Reload e inspección Frontend HTML (Solo Docente)
   let previewCommand = vscode.commands.registerCommand(
     "code-sync.previewHtml",
     (item: StudentTreeItem) => {
       if (!item.studentId || !item.filePath) return;
+
       const uriString = CodeSyncProvider.createUri(
         item.studentId,
         item.filePath,
@@ -190,50 +259,58 @@ export function activate(context: vscode.ExtensionContext) {
 
       const panel = vscode.window.createWebviewPanel(
         "htmlPreview",
-        `Vista: ${item.label}`,
+        `Vista Previa: ${item.label}`,
         vscode.ViewColumn.Two,
         { enableScripts: true },
       );
+
       panel.webview.html =
         codeProvider.getContent(uriString) ||
-        "<h1>Sincronizando código...</h1>";
+        "<h1>Sincronizando entorno de desarrollo remoto...</h1>";
       panel.onDidDispose(() => previews.delete(uriString));
       previews.set(uriString, panel);
     },
   );
 
-  // --- COMANDOS DE ENVÍO ---
+  // --- CONTROL DE ENVÍOS MASIVOS Y DISTRIBUCIÓN ---
 
+  // Enviar archivo activo a toda la clase
   let sendActiveAll = vscode.commands.registerCommand(
     "code-sync.sendActiveFileToAll",
     async () => {
       const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
       const uri = (activeTab?.input as any)?.uri;
+
       if (uri && uri.scheme === "file") {
         const fileName = await sendFile(uri);
-        if (fileName)
+        if (fileName) {
           vscode.window.showInformationMessage(
-            `🚀 '${fileName}' enviado a todos.`,
+            `🚀 Archivo '${fileName}' distribuido a toda la clase.`,
           );
+        }
       }
     },
   );
 
+  // Enviar archivo activo a un estudiante específico (Clic derecho en árbol lateral)
   let sendActiveOne = vscode.commands.registerCommand(
     "code-sync.sendActiveFileToStudent",
     async (item: StudentTreeItem) => {
       const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
       const uri = (activeTab?.input as any)?.uri;
+
       if (uri && uri.scheme === "file" && item.studentId) {
         const fileName = await sendFile(uri, item.studentId);
-        if (fileName)
+        if (fileName) {
           vscode.window.showInformationMessage(
-            `📤 '${fileName}' enviado a ${item.label}.`,
+            `📤 Archivo '${fileName}' inyectado en el workspace de ${item.label}.`,
           );
+        }
       }
     },
   );
 
+  // Enviar todas las pestañas abiertas a todos (Sincronización masiva de guías)
   let sendAllTabs = vscode.commands.registerCommand(
     "code-sync.sendAllTabsToAll",
     async () => {
@@ -247,29 +324,30 @@ export function activate(context: vscode.ExtensionContext) {
       const uniqueUris = Array.from(
         new Set(localUris.map((u) => u.toString())),
       ).map((s) => vscode.Uri.parse(s));
-      const btnConfirmar = "Sí, enviar todo";
+
+      const btnConfirmar = "Sí, iniciar transmisión masiva";
       const ok = await vscode.window.showWarningMessage(
-        `¿Enviar estos ${uniqueUris.length} archivos a toda la sala?`,
+        `¿Deseas enviar este paquete de ${uniqueUris.length} archivos a toda la sala de desarrollo?`,
         btnConfirmar,
-        "No",
+        "Cancelar",
       );
 
       if (ok === btnConfirmar) {
         for (const uri of uniqueUris) await sendFile(uri);
         vscode.window.showInformationMessage(
-          `📦 Sincronización masiva completada.`,
+          `📦 Paquete de sincronización masiva completado.`,
         );
       }
     },
   );
 
-  // --- COMANDOS DEL DESAFÍO ---
+  // --- SECCIÓN: RETOS Y EXÁMENES CRONOMETRADOS ---
 
   let startTimerCmd = vscode.commands.registerCommand(
     "code-sync.startTimer",
     async () => {
       const minutes = await vscode.window.showInputBox({
-        prompt: "⏳ ¿Minutos del desafío?",
+        prompt: "⏳ Duración establecida para el desafío técnico (Minutos):",
       });
       if (minutes && currentRoomId) {
         socketManager.emit("start-timer", {
@@ -280,12 +358,21 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  let stopTimerCmd = vscode.commands.registerCommand(
+    "code-sync.stopTimer",
+    () => {
+      if (isTeacher && currentRoomId) {
+        socketManager.emit("stop-timer", { roomId: currentRoomId });
+      }
+    },
+  );
+
   let sendSnapshotCmd = vscode.commands.registerCommand(
     "code-sync.sendFullProjectSnapshot",
     async () => {
       if (isTeacher) {
         console.log(
-          "[CodeSync]: Snapshot cancelado. El docente no envía entregas.",
+          "[CodeSync]: Snapshot omitido. Cuenta de Docente inmune a entregas.",
         );
         return;
       }
@@ -294,13 +381,12 @@ export function activate(context: vscode.ExtensionContext) {
         "**/*",
         "**/node_modules/**",
       );
-
       const payload: { path: string; content: string }[] = [];
 
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "CodeSync: Realizando entrega final...",
+          title: "CodeSync: Recopilando y estructurando entrega final...",
           cancellable: false,
         },
         async () => {
@@ -312,9 +398,7 @@ export function activate(context: vscode.ExtensionContext) {
                 content: Buffer.from(content).toString("base64"),
               });
             } catch (e) {
-              console.error(
-                `Error al leer archivo para entrega: ${file.fsPath}`,
-              );
+              console.error(`Error de empaquetado en recurso: ${file.fsPath}`);
             }
           }
 
@@ -325,12 +409,14 @@ export function activate(context: vscode.ExtensionContext) {
           });
 
           vscode.window.showInformationMessage(
-            "📦 Entrega final enviada al profesor.",
+            "📦 Snapshot de entrega enviado correctamente al profesor.",
           );
         },
       );
     },
   );
+
+  // --- SOPORTE Y SOLICITUD DE ASISTENCIA ---
 
   let helpCommand = vscode.commands.registerCommand(
     "code-sync.showHelp",
@@ -342,19 +428,17 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // COMANDO PARA EL ALUMNO (Botón en el Explorer)
   let requestHelpCmd = vscode.commands.registerCommand(
     "code-sync.requestHelp",
     () => {
       if (isTeacher) return;
       socketManager.emit("request-help", {});
       vscode.window.showInformationMessage(
-        "✋ Has levantado la mano. El profe te atenderá pronto.",
+        "✋ Has solicitado asistencia técnica. Tu celda cambiará de estado en el monitor del docente.",
       );
     },
   );
 
-  // COMANDO PARA EL PROFESOR (Clic derecho -> Resuelto)
   let resolveHelpCmd = vscode.commands.registerCommand(
     "code-sync.resolveHelp",
     (item: StudentTreeItem) => {
@@ -367,26 +451,30 @@ export function activate(context: vscode.ExtensionContext) {
   let internalRefreshCmd = vscode.commands.registerCommand(
     "code-sync.internalRefreshTree",
     () => {
-      if (
-        currentRoomId &&
-        currentUserName &&
-        !currentUserName.toLowerCase().includes("profe")
-      )
+      if (currentRoomId && currentUserName && !isTeacher) {
         refreshAndSendTree();
+      }
     },
   );
 
-  // Comando para abrir el panel de Chat
-  let openChatCmd = vscode.commands.registerCommand(
-    "code-sync.openChat",
-    () => {
-      CodeSyncChatPanel.createOrShow(context.extensionUri);
+  // --- INTERFAZ MULTI-PANEL (CHAT Y DASHBOARD TÁCTICO) ---
 
-      // Escuchar lo que la Webview envía hacia afuera
-      CodeSyncChatPanel.currentPanel?.["_panel"].webview.onDidReceiveMessage(
-        (message) => {
-          if (message.command === "send") {
-            socketManager.emitChat(message.text); // Enviar al servidor
+  let openDashboardCmd = vscode.commands.registerCommand(
+    "code-sync.openDashboard",
+    () => {
+      if (!isTeacher) return;
+      CodeSyncDashboard.createOrShow();
+
+      // Escuchador táctico: Recibe comandos desde los clics de la interfaz de la Webview del Dashboard
+      CodeSyncDashboard.currentPanel?.["_panel"].webview.onDidReceiveMessage(
+        async (message) => {
+          if (message.command === "openStudent") {
+            // Permite al profesor abrir de forma remota la pestaña exacta que el alumno tiene activa
+            vscode.commands.executeCommand(
+              "code-sync.openStudentFile",
+              message.studentId,
+              message.filePath || "index.html",
+            );
           }
         },
         undefined,
@@ -395,10 +483,49 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // --- VIGILANCIA (LISTENERS) ---
+  let openChatCmd = vscode.commands.registerCommand(
+    "code-sync.openChat",
+    () => {
+      CodeSyncChatPanel.createOrShow(context.extensionUri, isTeacher);
 
+      if (isTeacher) {
+        CodeSyncChatPanel.currentPanel?.updateStudentList(
+          socketManager.getActiveStudents(),
+        );
+      }
+
+      CodeSyncChatPanel.currentPanel?.["_panel"].webview.onDidReceiveMessage(
+        (message) => {
+          if (message.command === "send") {
+            socketManager.emitChat(message.text, message.targetId);
+          }
+        },
+        undefined,
+        context.subscriptions,
+      );
+    },
+  );
+
+  // --- VIGILANCIA EN SEGUNDO PLANO (LISTENERS ACTIVOS DE VS CODE) ---
+
+  // Telemetría de enfoque: Detecta si el estudiante minimiza VS Code o cambia de ventana
+  const focusWatcher = vscode.window.onDidChangeWindowState((windowState) => {
+    if (isTeacher || !currentRoomId) return;
+
+    socketManager.emit("student-focus-change", {
+      roomId: currentRoomId,
+      isFocused: windowState.focused,
+    });
+  });
+
+  // Monitor de escritura: Captura el delta de caracteres insertados para calcular WPM localmente
   const onType = vscode.workspace.onDidChangeTextDocument((e) => {
     if (isTeacher || !currentRoomId || e.contentChanges.length === 0) return;
+
+    e.contentChanges.forEach((change) => {
+      keystrokeCount += change.text.length;
+    });
+
     if (changeTimeout) clearTimeout(changeTimeout);
     changeTimeout = setTimeout(() => {
       socketManager.emit("code-update", {
@@ -406,8 +533,27 @@ export function activate(context: vscode.ExtensionContext) {
         filePath: vscode.workspace.asRelativePath(e.document.uri),
         content: e.document.getText(),
       });
-    }, 300);
+    }, 300); // Debounce de 300ms para mitigar saturación de buffers de red inalámbricos
   });
+
+  // Rastreador dinámico de pestañas de edición: Envía al Dashboard qué ruta está inspeccionando el alumno
+  const activeEditorWatcher = vscode.window.onDidChangeActiveTextEditor(
+    (editor) => {
+      if (
+        isTeacher ||
+        !currentRoomId ||
+        !editor ||
+        editor.document.uri.scheme !== "file"
+      ) {
+        return;
+      }
+
+      socketManager.emit("student-active-file-change", {
+        roomId: currentRoomId,
+        filePath: vscode.workspace.asRelativePath(editor.document.uri),
+      });
+    },
+  );
 
   const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
   fsWatcher.onDidCreate(() => {
@@ -420,8 +566,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (!isTeacher) refreshAndSendTree();
   });
 
-  // --- REGISTRO DE SUBSCRIPCIONES ---
-
+  // --- INYECCIÓN Y REGISTRO EN EL SUBSCRIPTIONS-POOL ---
   context.subscriptions.push(
     statusBarItem,
     treeView,
@@ -432,12 +577,16 @@ export function activate(context: vscode.ExtensionContext) {
     sendActiveOne,
     sendAllTabs,
     startTimerCmd,
+    stopTimerCmd,
     sendSnapshotCmd,
     helpCommand,
     requestHelpCmd,
     resolveHelpCmd,
     internalRefreshCmd,
     openChatCmd,
+    openDashboardCmd,
+    activeEditorWatcher,
+    focusWatcher,
     onType,
     fsWatcher,
     vscode.workspace.registerTextDocumentContentProvider(
@@ -449,4 +598,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   if (changeTimeout) clearTimeout(changeTimeout);
+  if (wmpInterval) clearInterval(wmpInterval);
 }

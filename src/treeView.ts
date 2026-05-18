@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 /**
  * Proveedor de datos para la vista lateral de "CodeSync: Classroom".
- * Maneja la jerarquía: Estudiante -> Archivos.
+ * Maneja la jerarquía jerárquica y reactiva: Estudiante -> Archivos del Espacio de Trabajo.
  */
 export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<
@@ -10,13 +10,15 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  // Mapa persistente: socketId -> { nombre, lista_de_archivos }
+  // Mapa persistente en memoria: socketId -> { nombre, lista_de_archivos }
   private students = new Map<string, { name: string; files: string[] }>();
-  // Set para rastrear quién ha solicitado asistencia
+
+  // Sets de telemetría reactivos para aislar los estados de cada estudiante
   private studentsHelpStatus = new Set<string>();
+  private studentsPlagiarismStatus = new Set<string>(); // Registro dinámico de Copy-Paste
 
   /**
-   * Cambia el estado de ayuda de un alumno y refresca la vista.
+   * Modifica el estado de asistencia de un alumno y fuerza el refresco del árbol lateral.
    */
   public setHelpStatus(studentId: string, status: boolean) {
     if (status) {
@@ -27,22 +29,47 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Modifica el estado de alerta por Copy-Paste masivo de un alumno y fuerza el refresco inmediato.
+   */
+  public setPlagiarismStatus(studentId: string, status: boolean) {
+    if (status) {
+      this.studentsPlagiarismStatus.add(studentId);
+    } else {
+      this.studentsPlagiarismStatus.delete(studentId);
+    }
+    this._onDidChangeTreeData.fire();
+  }
+
+  /**
+   * Inserta o actualiza el árbol de archivos reportado por el cliente de un estudiante.
+   */
   public refresh(studentId: string, name: string, files: string[]): void {
     this.students.set(studentId, { name, files });
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Resetea por completo los buffers de datos y estados de soporte (Ideal al cambiar de sala).
+   */
   public clearAll(): void {
     this.students.clear();
     this.studentsHelpStatus.clear();
+    this.studentsPlagiarismStatus.clear();
     this._onDidChangeTreeData.fire();
-    console.log("[CodeSync TreeView]: Vista y estados de ayuda reseteados.");
+    console.log(
+      "[CodeSync TreeView]: Todos los nodos y estados de telemetría reseteados.",
+    );
   }
 
+  /**
+   * Remueve a un alumno del árbol lateral al desconectarse para evitar referencias muertas.
+   */
   public removeStudent(studentId: string): void {
     if (this.students.has(studentId)) {
       this.students.delete(studentId);
-      this.studentsHelpStatus.delete(studentId); // Limpiamos también su estado de ayuda
+      this.studentsHelpStatus.delete(studentId);
+      this.studentsPlagiarismStatus.delete(studentId); // Purgado preventivo de leaks
       this._onDidChangeTreeData.fire();
     }
   }
@@ -53,11 +80,11 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
 
   public getChildren(element?: StudentTreeItem): Thenable<StudentTreeItem[]> {
     if (!element) {
-      // NIVEL RAÍZ: Lista de Estudiantes
+      // --- NIVEL RAÍZ: Mapeo, extracción de analíticas y ordenamiento de Alumnos ---
       const studentItems = Array.from(this.students.entries()).map(
         ([id, data]) => {
-          // CORRECCIÓN: La verificación de ayuda debe ir dentro del mapeo
           const isAskingHelp = this.studentsHelpStatus.has(id);
+          const isPlagiarized = this.studentsPlagiarismStatus.has(id);
 
           return new StudentTreeItem(
             data.name,
@@ -66,18 +93,19 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
             true,
             undefined,
             isAskingHelp,
+            isPlagiarized,
           );
         },
       );
 
-      // Ordenar estudiantes alfabéticamente
+      // Ordenamiento alfabético automático para una navegación fluida del docente
       return Promise.resolve(
         studentItems.sort((a, b) =>
           (a.label as string).localeCompare(b.label as string),
         ),
       );
     } else if (element.isStudent) {
-      // NIVEL HIJOS: Archivos del estudiante seleccionado
+      // --- NIVEL HIJOS: Renderizado de los archivos virtuales del alumno seleccionado ---
       const student = this.students.get(element.studentId!);
       if (!student) return Promise.resolve([]);
 
@@ -101,7 +129,7 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
 }
 
 /**
- * Representa un ítem (Alumno o Archivo) en el explorador de CodeSync.
+ * Representa un nodo gráfico (Estudiante o Fichero Virtual) dentro de la barra lateral de VS Code.
  */
 export class StudentTreeItem extends vscode.TreeItem {
   constructor(
@@ -111,26 +139,38 @@ export class StudentTreeItem extends vscode.TreeItem {
     public readonly isStudent: boolean,
     public readonly filePath?: string,
     public readonly isAskingHelp: boolean = false,
+    public readonly isPlagiarized: boolean = false,
   ) {
     super(label, collapsibleState);
 
-    // ID único para mantener el estado del scroll/colapso
+    // Mantenemos un hash ID consistente para evitar saltos molestos de scroll al redibujar
     this.id = isStudent ? studentId : `${studentId}-${filePath}`;
 
     if (isStudent) {
       this.tooltip = `Estudiante: ${label}\nSocket ID: ${studentId}`;
 
-      // Estética de Ayuda: Cambiamos icono y descripción si levantó la mano
-      this.iconPath = new vscode.ThemeIcon(
-        isAskingHelp ? "question" : "account",
-        isAskingHelp ? new vscode.ThemeColor("charts.red") : undefined,
-      );
-
-      this.description = isAskingHelp ? "¡NECESITA AYUDA!" : "En línea";
-
-      // El contextValue permite mostrar menús diferentes (Ej: botón de "Resuelto")
-      this.contextValue = isAskingHelp ? "student-help" : "student";
+      // 🧠 Orquestador Táctico de Identidad Visual y Severidad de Alertas
+      if (this.isPlagiarized) {
+        this.iconPath = new vscode.ThemeIcon(
+          "warning",
+          new vscode.ThemeColor("charts.red"),
+        );
+        this.description = "⚠️ DETECTADO COPY-PASTE";
+        this.contextValue = "student-alert"; // Engancha comportamiento preventivo especial
+      } else if (this.isAskingHelp) {
+        this.iconPath = new vscode.ThemeIcon(
+          "question",
+          new vscode.ThemeColor("charts.orange"),
+        );
+        this.description = "¡NECESITA AYUDA!";
+        this.contextValue = "student-help"; // Vincula los menús contextuales de "Atendido"
+      } else {
+        this.iconPath = new vscode.ThemeIcon("account");
+        this.description = "En línea";
+        this.contextValue = "student"; // Menú contextual base del alumno
+      }
     } else {
+      // Mapeo estético de los nodos hoja (Archivos de código fuente)
       const isImage = /\.(jpg|jpeg|png|gif|ico|svg)$/i.test(label);
       this.iconPath = new vscode.ThemeIcon(
         isImage ? "file-media" : "file-code",
@@ -138,8 +178,9 @@ export class StudentTreeItem extends vscode.TreeItem {
 
       this.contextValue = "file";
       this.description = "";
-      this.tooltip = `Ver código de: ${label}`;
+      this.tooltip = `Inspeccionar código en vivo de: ${label}`;
 
+      // Configuración del click nativo para abrir el búfer virtual P2P
       this.command = {
         command: "code-sync.openStudentFile",
         title: "Abrir Archivo Virtual",

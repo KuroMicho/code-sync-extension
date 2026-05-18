@@ -1,26 +1,26 @@
-# 🚀 Guía Rápida: CodeSync
+# 🚀 CodeSync: Guía del Estudiante
 
-Sigue estos pasos para sincronizarte con la clase del **Profe**:
+### 1. Conexión 🔌
+* Ve al panel de **CodeSync** (ícono `$(broadcast)` a la izquierda).
+* Haz clic en **`Unirse a una Sala`**.
+* Ingresa el **Código de la Sala** (ver tablero) y tu **Nombre Completo**.
 
-### 1. Conectarse
+### 2. Guardado en Vivo ⚡
+* **100% Automático:** Cada cambio o archivo nuevo se envía al monitor del profesor al instante.
+* No satura la red (ignora automáticamente `node_modules`).
 
-- Busca el icono `$(broadcast)` en la barra lateral.
-- Ingresa el **ID de la Sala** que te dará el profesor.
-- Ingresa tu **Nombre Completo** (para poder calificarte).
+### 3. Chat Cyber-Room 📟
+* Abre el ícono de mensaje arriba a la derecha.
+* Recibe instrucciones generales del profe o correcciones privadas en tiempo real.
 
-### 2. Sincronización
+### 4. Pedir Ayuda ✋
+* Si te trabas con un error, haz clic en **`Pedir Ayuda al Profe`**.
+* Tu celda se pondrá en alerta para que el profesor revise tu código desde su puesto.
 
-- **Es automática**: Todo lo que escribas o crees se enviará al profe en tiempo real.
-- No te preocupes por `node_modules`, el sistema los ignora para ser más veloz.
+### 5. Exámenes y Retos ⏳
+Mira el reloj abajo a la izquierda en la Barra de Estado:
+* 🟢 **Cian:** Tiempo normal de desarrollo.
+* 🔴 **Rosa Neón:** ¡Últimos 30 segundos!
+* 🏁 **Al llegar a 0:00:** Envía un **Snapshot automático** de todo tu proyecto. Entrega asegurada.
 
-### 3. El Desafío (Timer)
-
-Si el profe inicia un reto, verás un reloj flotante en tu código:
-
-- 🟢 **Cian**: Tienes tiempo.
-- 🔴 **Rosa Neón**: Quedan menos de 30 segundos.
-- 🏁 **0:00**: El tiempo se agota y tu proyecto **se envía solo**. ¡Asegúrate de tener todo listo!
-
----
-
-> **Tip:** Si el reloj te estorba o no lo ves, cambia de pestaña y volverá a aparecer en la esquina superior.
+> 🛡️ **Anti-Caídas:** Si se cierra VS Code o se cae el Wi-Fi, vuelve a unirte a la sala. El sistema recuperará tu sesión y tu reloj en el segundo exacto de la clase.
