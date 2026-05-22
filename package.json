@@ -15,6 +15,22 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "CodeSync Configuration",
+      "properties": {
+        "codeSync.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "URL del servidor backend NestJS."
+        },
+        "codeSync.teacherKey": {
+          "type": "string",
+          "default": "",
+          "password": true,
+          "description": "Clave maestra de autenticación docente para el blindaje de salas de CodeSync."
+        }
+      }
+    },
     "commands": [
       {
         "command": "code-sync.joinRoom",
@@ -187,7 +203,8 @@
       "codesync-explorer": [
         {
           "id": "studentsList",
-          "name": "CodeSync: Classroom"
+          "name": "CodeSync: Classroom",
+          "icon": "$(screen)"
         }
       ]
     }

@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
 export class CodeSyncChatPanel {
   public static currentPanel: CodeSyncChatPanel | undefined;
@@ -20,10 +20,8 @@ export class CodeSyncChatPanel {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      "codesyncChat",
-      isTeacher
-        ? "📟 CODESYNC :: CONTROL_PANEL_CHAT"
-        : "📟 CODESYNC :: STUDENT_CHAT",
+      'codesyncChat',
+      isTeacher ? '📟 CODESYNC :: CONTROL_PANEL_CHAT' : '📟 CODESYNC :: STUDENT_CHAT',
       vscode.ViewColumn.Two,
       { enableScripts: true, retainContextWhenHidden: true },
     );
@@ -32,12 +30,12 @@ export class CodeSyncChatPanel {
   }
 
   public addMessage(data: any, myOpenId: string) {
-    this._panel.webview.postMessage({ command: "receive", ...data, myOpenId });
+    this._panel.webview.postMessage({ command: 'receive', ...data, myOpenId });
   }
 
   public updateStudentList(students: { id: string; name: string }[]) {
     if (this._isTeacher) {
-      this._panel.webview.postMessage({ command: "updateStudents", students });
+      this._panel.webview.postMessage({ command: 'updateStudents', students });
     }
   }
 
@@ -74,7 +72,7 @@ export class CodeSyncChatPanel {
                     #targetSelect { 
                         background: #121216; color: #ff0080; border: 1px solid #ff008055; 
                         padding: 6px; font-family: inherit; outline: none; box-shadow: 0 0 5px #ff008011;
-                        display: ${this._isTeacher ? "block" : "none"};
+                        display: ${this._isTeacher ? 'block' : 'none'};
                     }
                     #targetSelect:focus { border-color: #ff0080; box-shadow: 0 0 8px #ff008044; }
                     #input-row { display: flex; gap: 6px; }

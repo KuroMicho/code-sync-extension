@@ -1,294 +1,367 @@
-import { io, Socket } from "socket.io-client";
-import * as vscode from "vscode";
-import * as path from "path";
-import { exec } from "child_process";
-import { CodeSyncProvider } from "./provider";
-import { StudentDataProvider } from "./treeView";
-import { previews } from "./extension";
-import { CodeSyncChatPanel } from "./chatPanel";
-import { CodeSyncDashboard } from "./dashboardPanel";
+import { io, Socket } from 'socket.io-client';
+import * as vscode from 'vscode';
+import * as path from 'path';
+import { exec } from 'child_process';
+import { CodeSyncProvider } from './provider';
+import { StudentDataProvider } from './treeView';
+import { previews } from './extension';
+import { CodeSyncChatPanel } from './chatPanel';
+import { CodeSyncDashboard } from './dashboardPanel';
+
+interface UserJoinedPayload {
+  id: string;
+  name: string;
+  role: string;
+}
+interface TelemetryPayload {
+  studentId: string;
+  name: string;
+  wpm?: number;
+  isCopyPaste?: boolean;
+  isFocused?: boolean;
+  activeFilePath?: string;
+}
+interface DisconnectPayload {
+  socketId: string;
+  studentName?: string;
+  role?: string;
+}
+interface ChatPayload {
+  senderId: string;
+  sender: string;
+  role: string;
+  message: string;
+  targetId?: string;
+  isPrivate: boolean;
+  timestamp: string;
+}
+interface FileTreePayload {
+  studentId: string;
+  name: string;
+  files: string[];
+}
+interface FileUpdatePayload {
+  studentId: string;
+  filePath: string;
+  content: string;
+}
 
 /**
- * Gestor de comunicación vía WebSockets para CodeSync.
- * Controla la sincronización de archivos, telemetría en vivo, chat y cronómetro.
+ * Gestor de comunicación de alto rendimiento vía WebSockets para CodeSync.
+ * Administra de forma asíncrona la telemetría del aula, chat táctico, sincronización y auditoría en tiempo real.
  */
 export class SocketManager {
   private socket: Socket;
   private provider?: CodeSyncProvider;
   private treeProvider?: StudentDataProvider;
 
-  // Propiedades del Cronómetro Técnico (Timer)
+  // Propiedades del Cronómetro Técnico de Evaluación
   private timerInterval?: NodeJS.Timeout;
   private timerStatusBar: vscode.StatusBarItem;
   private isUrgent: boolean = false;
   private context: vscode.ExtensionContext;
 
-  // Caché local para control estricto de permisos del cliente
-  private role: string = "";
-
-  // Memoria volátil de estudiantes en la sala actual (Alimenta chats y dashboards)
+  // Cache contextual de privilegios y pool de estudiantes legítimos
+  private role: string = '';
   private activeStudentsList: { id: string; name: string }[] = [];
+  private chatHistoryBuffer: ChatPayload[] = [];
 
   constructor(serverUrl: string, context: vscode.ExtensionContext) {
     this.context = context;
 
-    // Configuración con tolerancia a microcortes inalámbricos (Ideal para routers de aula)
+    // Configuración resiliente a fluctuaciones inalámbricas severas en salas de cómputo
     this.socket = io(`${serverUrl}/code-sync`, {
-      transports: ["websocket"],
+      transports: ['websocket'],
       autoConnect: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 3000,
     });
 
-    // Inicialización del display del temporizador en la barra inferior izquierda
-    this.timerStatusBar = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Left,
-      101,
-    );
-
+    this.timerStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 101);
     this.setupListeners();
   }
 
-  public setProviders(
-    provider: CodeSyncProvider,
-    treeProvider: StudentDataProvider,
-  ) {
+  public setProviders(provider: CodeSyncProvider, treeProvider: StudentDataProvider) {
     this.provider = provider;
     this.treeProvider = treeProvider;
   }
 
-  /**
-   * Retorna el identificador de conexión único del socket.
-   */
   public getSocketId(): string {
-    return this.socket.id || "";
+    return this.socket.id || '';
   }
 
-  /**
-   * Retorna los estudiantes mapeados localmente en la sala.
-   */
   public getActiveStudents() {
     return this.activeStudentsList;
   }
 
   /**
-   * Pipeline de execution multimedia nativo por sistema operativo.
-   * Utiliza hilos en background (PresentationCore) para no congelar el editor.
+   * Pipeline de ejecución de audio nativo por hilos en background según el Sistema Operativo.
    */
-  private playSound(fileName: "start.mp3" | "stop.mp3") {
-    const soundPath = path.join(this.context.extensionPath, "assets", fileName);
-
+  private playSound(fileName: 'start.mp3' | 'stop.mp3') {
+    const soundPath = path.join(this.context.extensionPath, 'assets', fileName);
     const winCommand = `powershell -c "Add-Type -AssemblyName PresentationCore; $mediaPlayer = New-Object System.Windows.Media.MediaPlayer; $mediaPlayer.Open('${soundPath}'); $mediaPlayer.Play(); Start-Sleep -s 3"`;
+
     const command =
-      process.platform === "win32"
+      process.platform === 'win32'
         ? winCommand
-        : process.platform === "darwin"
+        : process.platform === 'darwin'
           ? `afplay "${soundPath}"`
           : `paplay "${soundPath}" || aplay "${soundPath}"`;
 
     exec(command, (error) => {
-      if (error) {
-        console.error(`[CodeSync Audio Error]:`, error);
-      }
+      if (error) console.error(`[CodeSync Audio Error]:`, error);
     });
   }
 
+  /**
+   * Registro centralizado de eventos e interceptores de red.
+   */
   private setupListeners() {
-    // --- MONITORIZACIÓN DE RED GLOBAL ---
-    this.socket.on("connect", () => {
-      console.log(`[CodeSync]: Conexión establecida. ID: ${this.socket.id}`);
-      vscode.window.showInformationMessage("🚀 CodeSync: En Línea");
+    this.setupNetworkAndSecurityListeners();
+    this.setupTelemetryAndHardwareListeners();
+    this.setupCodeReplicationListeners();
+    this.setupClassroomControlListeners();
+  }
+
+  // =================================================================
+  // 🛰️ CAPA 1: RED, AUTENTICACIÓN Y SEGURIDAD CRIPTOGRÁFICA
+  // =================================================================
+  private setupNetworkAndSecurityListeners() {
+    this.socket.on('connect', () => {
+      console.log(`[CodeSync]: Canal de red establecido. ID: ${this.getSocketId()}`);
     });
 
-    this.socket.on("connect_error", (err) =>
-      console.error("[CodeSync]: Error de conexión ->", err.message),
-    );
+    this.socket.on('connect_error', (err) => {
+      console.error('[CodeSync]: Error crítico de red ->', err.message);
+    });
 
-    // --- CONTROL DE FLUJO DE USUARIOS (SALAS) ---
-    this.socket.on(
-      "user-joined",
-      (user: { id: string; name: string; role: string }) => {
-        if (user.role === "student") {
-          if (!this.activeStudentsList.some((s) => s.id === user.id)) {
-            this.activeStudentsList.push({ id: user.id, name: user.name });
+    this.socket.on('join-success', (payload?: { role?: string; name?: string; roomId?: string }) => {
+      const ext = require('./extension');
 
-            // Sincronización en vivo del dropdown del chat docente
-            if (CodeSyncChatPanel.currentPanel) {
-              CodeSyncChatPanel.currentPanel.updateStudentList(
-                this.activeStudentsList,
-              );
-            }
-          }
+      vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', true);
+
+      if (this.role === 'teacher') {
+        vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', true);
+        vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
+
+        if (ext.statusBarItem) {
+          ext.statusBarItem.text = `$(shield) Profesor: ${payload?.roomId || 'SALA_ACTIVA'}`;
+          ext.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         }
-      },
-    );
 
-    this.socket.on("user-disconnected", (id: string) => {
-      // 1. Limpieza de buffers virtuales y árbol jerárquico izquierdo
-      this.treeProvider?.removeStudent(id);
-      this.provider?.deleteStudentContent(id);
-
-      // 2. Remoción de las colas de mensajería del chat
-      this.activeStudentsList = this.activeStudentsList.filter(
-        (s) => s.id !== id,
-      );
-      if (CodeSyncChatPanel.currentPanel) {
-        CodeSyncChatPanel.currentPanel.updateStudentList(
-          this.activeStudentsList,
+        console.log(
+          '[CodeSync Sockets]: Autenticado como docente. Forzando sincronización de cuadrícula y árbol lateral...',
         );
+        this.emit('request-dashboard-sync', {});
+
+        vscode.window.showInformationMessage(`🔑 CodeSync: Autenticado con éxito como Docente.`);
+      } else {
+        vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
+        vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', true);
+
+        if (ext.statusBarItem) {
+          ext.statusBarItem.text = `$(check) Estudiante: ${payload?.roomId || 'SALA_ACTIVA'}`;
+          ext.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.remoteBackground');
+        }
+
+        if (typeof ext.startWpmTracker === 'function') ext.startWpmTracker();
+        if (typeof ext.refreshAndSendTree === 'function') ext.refreshAndSendTree();
+
+        vscode.window.showInformationMessage(`✅ CodeSync: Conectado con éxito a la sala.`);
+      }
+    });
+
+    this.socket.on('join-rejected', (reason: string) => {
+      console.error(`[CodeSync Seguridad]: Conexión rebotada por el backend. Motivo: ${reason}`);
+
+      const ext = require('./extension');
+
+      // 🛡️ PURGA DE CONTEXTOS RESIDUALES EN CALIENTE: Evita el bloqueo del entorno visual
+      vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', false);
+      vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
+      vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
+
+      if (ext.statusBarItem) {
+        ext.statusBarItem.text = '$(broadcast) CodeSync: Conectar';
+        ext.statusBarItem.backgroundColor = undefined;
+        ext.statusBarItem.show();
       }
 
-      // 3. Purga o actualización visual en el Dashboard del docente
+      this.activeStudentsList = [];
+      this.treeProvider?.clearAll();
+      this.provider?.clearAll();
+
+      vscode.window.showErrorMessage(`🚨 CodeSync Seguridad: Acceso Denegado. ${reason}`);
+
+      if (CodeSyncDashboard.currentPanel) {
+        CodeSyncDashboard.currentPanel.updateTelemetry({ disconnected: true });
+      }
+    });
+
+    this.socket.on('user-joined', (user: UserJoinedPayload) => {
+      if (user.role === 'student' && !this.activeStudentsList.some((s) => s.id === user.id)) {
+        this.activeStudentsList.push({ id: user.id, name: user.name });
+        this.refreshChatStudentList();
+      }
+    });
+
+    this.socket.on('user-disconnected', (data: DisconnectPayload) => {
+      const id = data.socketId;
+
+      if (!data.role || data.role === 'student') {
+        this.treeProvider?.removeStudent(id);
+        this.provider?.deleteStudentContent(id);
+        this.activeStudentsList = this.activeStudentsList.filter((s) => s.id !== id);
+        this.refreshChatStudentList();
+      }
+
       if (CodeSyncDashboard.currentPanel) {
         CodeSyncDashboard.currentPanel.updateTelemetry({
           studentId: id,
+          studentName: data.studentName,
+          role: data.role,
+          socketId: id,
           disconnected: true,
         });
       }
     });
+  }
 
-    // --- SISTEMA DE TELEMETRÍA (DASHBOARD CENTRAL) ---
-    this.socket.on("telemetry-updated", (data: any) => {
+  // =================================================================
+  // 📸 CAPA 2: TELEMETRÍA AVANZADA Y PERMISOS DE HARDWARE
+  // =================================================================
+  private setupTelemetryAndHardwareListeners() {
+    this.socket.on('screenshot-received', (data: { studentName: string; image: ArrayBuffer }) => {
+      if (CodeSyncDashboard.currentPanel) {
+        const rawBinaryArray = new Uint8Array(data.image);
+        CodeSyncDashboard.currentPanel['_panel'].webview.postMessage({
+          command: 'screenshot-received',
+          studentName: data.studentName,
+          imageArray: rawBinaryArray,
+        });
+      }
+    });
+
+    this.socket.on('telemetry-updated', (data: TelemetryPayload) => {
       if (CodeSyncDashboard.currentPanel) {
         CodeSyncDashboard.currentPanel.updateTelemetry(data);
       }
 
-      // Sincronización cruzada con la barra lateral jerárquica
       if (data.isCopyPaste !== undefined) {
-        this.treeProvider?.setPlagiarismStatus(
-          data.studentId,
-          data.isCopyPaste,
-        );
+        this.treeProvider?.setPlagiarismStatus(data.studentId, data.isCopyPaste);
+      }
+    });
+  }
+
+  // =================================================================
+  // 💻 CAPA 3: TRANSMISIÓN Y TRÁFICO EN TIEMPO REAL DE CÓDIGO
+  // =================================================================
+  private setupCodeReplicationListeners() {
+    this.socket.on('student-file-tree', (data: FileTreePayload) => {
+      console.log(`[CodeSync Replicación]: Estructura de archivos recibida para ${data.name}`);
+
+      if (!this.activeStudentsList.some((s) => s.id === data.studentId)) {
+        this.activeStudentsList.push({ id: data.studentId, name: data.name });
+        this.treeProvider?.refresh(data.studentId, data.name, []);
+        this.refreshChatStudentList();
+      }
+
+      this.treeProvider?.refresh(data.studentId, data.name, data.files);
+    });
+
+    this.socket.on('code-remote-update', (data: FileUpdatePayload) => this.updateVirtualDocument(data));
+    this.socket.on('file-content-received', (data: FileUpdatePayload) => this.updateVirtualDocument(data));
+
+    this.socket.on('get-content', async (data: { teacherId: string; filePath: string }) => {
+      const workspace = vscode.workspace.workspaceFolders?.[0];
+      if (!workspace) return;
+      try {
+        const uri = vscode.Uri.joinPath(workspace.uri, data.filePath);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        this.emit('send-content', {
+          teacherId: data.teacherId,
+          filePath: data.filePath,
+          content: doc.getText(),
+        });
+      } catch (e) {
+        console.error('[CodeSync P2P]: Error en la lectura del búfer solicitado.');
       }
     });
 
-    // --- COMUNICACIÓN POR CHAT (CYBER-ROOM) ---
-    this.socket.on("chat-message-received", (data: any) => {
-      this.playSound("start.mp3");
+    this.socket.on('create-local-file', async (data: { fileName: string; initialContent: string }) => {
+      const workspace = vscode.workspace.workspaceFolders?.[0];
+      if (!workspace) return;
+
+      const fileUri = vscode.Uri.joinPath(workspace.uri, data.fileName);
+      try {
+        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(data.initialContent, 'base64'));
+        if (!/\.(jpg|jpeg|png|gif|ico|svg)$/i.test(data.fileName)) {
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          await vscode.window.showTextDocument(doc);
+        }
+      } catch (e) {
+        vscode.window.showErrorMessage(`Error de escritura en el archivo inyectado.`);
+      }
+    });
+  }
+
+  // =================================================================
+  // ⏳ CAPA 4: CANALES DE SOPORTE, CHAT Y RECONEXIÓN DE EXÁMENES
+  // =================================================================
+  private setupClassroomControlListeners() {
+    this.socket.on('chat-message-received', (data: ChatPayload) => {
+      this.playSound('start.mp3');
+
+      const esMensajeDuplicado = this.chatHistoryBuffer.some(
+        (m) => m.timestamp === data.timestamp && m.senderId === data.senderId && m.message === data.message,
+      );
+
+      if (!esMensajeDuplicado) {
+        this.chatHistoryBuffer.push(data);
+      }
 
       if (CodeSyncChatPanel.currentPanel) {
         CodeSyncChatPanel.currentPanel.addMessage(data, this.getSocketId());
       } else {
-        vscode.window.setStatusBarMessage(
-          `💬 Chat: Mensaje de ${data.sender}`,
-          4000,
-        );
+        vscode.window.setStatusBarMessage(`💬 Chat: Mensaje nuevo de ${data.sender}`, 5000);
       }
 
-      // 📢 Alerta Banner Toast visible si el profesor envía un comunicado general y el chat está cerrado
-      if (
-        !data.isPrivate &&
-        data.role === "teacher" &&
-        this.role === "student"
-      ) {
-        vscode.window.showInformationMessage(
-          `📢 Comunicado del Profe: "${data.message}"`,
-        );
+      if (!data.isPrivate && data.role === 'teacher' && this.role === 'student') {
+        vscode.window.showInformationMessage(`📢 Comunicado del Profe: "${data.message}"`);
       }
     });
 
-    // --- TRANSMISIÓN Y REPLICACIÓN DE CÓDIGO ---
-    this.socket.on(
-      "student-file-tree",
-      (data: { studentId: string; name: string; files: string[] }) => {
-        this.treeProvider?.refresh(data.studentId, data.name, data.files);
-
-        // Salvaguarda: Mapea al estudiante en la lista si se saltó el evento principal de entrada
-        if (!this.activeStudentsList.some((s) => s.id === data.studentId)) {
-          this.activeStudentsList.push({ id: data.studentId, name: data.name });
-          if (CodeSyncChatPanel.currentPanel) {
-            CodeSyncChatPanel.currentPanel.updateStudentList(
-              this.activeStudentsList,
-            );
-          }
-        }
-      },
-    );
-
-    this.socket.on("code-remote-update", (data: any) =>
-      this.updateVirtualDocument(data),
-    );
-    this.socket.on("file-content-received", (data: any) =>
-      this.updateVirtualDocument(data),
-    );
-
-    // --- GESTIÓN DE ALERTAS (SOPORTE EN VIVO) ---
-    this.socket.on("student-help-requested", (data: { studentId: string }) => {
+    this.socket.on('student-help-requested', (data: { studentId: string }) => {
       this.treeProvider?.setHelpStatus(data.studentId, true);
-      vscode.window.showInformationMessage(`🙋‍♂️ Un estudiante solicita ayuda.`);
+      vscode.window.showInformationMessage(`🙋‍♂️ Un estudiante solicita ayuda presencial.`);
     });
 
-    this.socket.on("student-help-resolved", (data: { studentId: string }) => {
+    this.socket.on('student-help-resolved', (data: { studentId: string }) => {
       this.treeProvider?.setHelpStatus(data.studentId, false);
     });
 
-    // --- ACCIONES REMOTAS E INYECCIÓN P2P ---
-    this.socket.on("request-sync", () =>
-      vscode.commands.executeCommand("code-sync.internalRefreshTree"),
-    );
+    this.socket.on('request-sync', () => vscode.commands.executeCommand('code-sync.internalRefreshTree'));
+
+    this.socket.on('timer-started', (data: { minutes: number }) => {
+      this.playSound('start.mp3');
+      this.startCountdown(data.minutes);
+    });
+
+    this.socket.on('timer-stopped', () => {
+      this.playSound('stop.mp3');
+      this.stopCountdown('⚠️ Conteo regressivo cancelado por el docente.');
+    });
 
     this.socket.on(
-      "get-content",
-      async (data: { teacherId: string; filePath: string }) => {
-        const workspace = vscode.workspace.workspaceFolders?.[0];
-        if (!workspace) return;
-        try {
-          const uri = vscode.Uri.joinPath(workspace.uri, data.filePath);
-          const doc = await vscode.workspace.openTextDocument(uri);
-          this.socket.emit("send-content", {
-            teacherId: data.teacherId,
-            filePath: data.filePath,
-            content: doc.getText(),
-          });
-        } catch (e) {
-          console.error("Error en la lectura local del búfer P2P solicitado.");
-        }
-      },
-    );
-
-    this.socket.on(
-      "create-local-file",
-      async (data: { fileName: string; initialContent: string }) => {
-        const workspace = vscode.workspace.workspaceFolders?.[0];
-        if (!workspace) return;
-
-        const fileUri = vscode.Uri.joinPath(workspace.uri, data.fileName);
-        try {
-          await vscode.workspace.fs.writeFile(
-            fileUri,
-            Buffer.from(data.initialContent, "base64"),
-          );
-          if (!/\.(jpg|jpeg|png|gif|ico|svg)$/i.test(data.fileName)) {
-            const doc = await vscode.workspace.openTextDocument(fileUri);
-            await vscode.window.showTextDocument(doc);
-          }
-        } catch (e) {
-          vscode.window.showErrorMessage(
-            `Error de escritura en el archivo inyectado.`,
-          );
-        }
-      },
-    );
-
-    // --- COLA DE ENTREGAS FINALES (DESAFÍOS) ---
-    this.socket.on(
-      "final-submission-received",
-      async (data: {
-        name: string;
-        files: { path: string; content: string }[];
-      }) => {
-        // 🛡️ ESCUDO DE SEGURIDAD: Solo el entorno del Profesor procesa y escribe entregas
-        if (this.role !== "teacher") return;
+      'final-submission-received',
+      async (data: { name: string; files: { path: string; content: string }[] }) => {
+        if (this.role !== 'teacher') return;
 
         const workspace = vscode.workspace.workspaceFolders?.[0];
         if (!workspace) return;
 
-        const folderName = `ENTREGA_${data.name.replace(/\s+/g, "_")}`;
-        const rootUri = vscode.Uri.joinPath(
-          workspace.uri,
-          "ENTREGAS_CODESYNC",
-          folderName,
-        );
+        const folderName = `ENTREGA_${data.name.replace(/\s+/g, '_')}`;
+        const rootUri = vscode.Uri.joinPath(workspace.uri, 'ENTREGAS_CODESYNC', folderName);
 
         await vscode.window.withProgress(
           {
@@ -300,37 +373,22 @@ export class SocketManager {
             try {
               for (const file of data.files) {
                 const fileUri = vscode.Uri.joinPath(rootUri, file.path);
-                const contentBuffer = Buffer.from(file.content, "base64");
-                await vscode.workspace.fs.writeFile(fileUri, contentBuffer);
+                await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'base64'));
               }
-              vscode.window.showInformationMessage(
-                `✅ Entrega de ${data.name} persistida en disco.`,
-              );
+              vscode.window.showInformationMessage(`✅ Entrega de ${data.name} guardada en disco.`);
             } catch (e) {
-              vscode.window.showErrorMessage(
-                `Error fatal al procesar snapshot de ${data.name}`,
-              );
+              vscode.window.showErrorMessage(`Error fatal al escribir snapshot de ${data.name}`);
             }
           },
         );
       },
     );
-
-    // --- CONTROL SÉPRICO DEL CRONÓMETRO ---
-    this.socket.on("timer-started", (data: { minutes: number }) => {
-      this.playSound("start.mp3");
-      this.startCountdown(data.minutes);
-    });
-
-    this.socket.on("timer-stopped", () => {
-      this.playSound("stop.mp3");
-      this.stopCountdown("⚠️ Desafío cancelado por el docente.");
-    });
   }
 
-  /**
-   * Ejecuta el hilo del cronómetro regresivo en la barra inferior.
-   */
+  // =================================================================
+  // ⚙️ MÉTODOS AUXILIARES DE CONTROL Y ORQUESTACIÓN INTERNA
+  // =================================================================
+
   private startCountdown(minutes: number) {
     this.stopCountdown();
     let timeLeft = Math.floor(minutes * 60);
@@ -338,34 +396,27 @@ export class SocketManager {
 
     this.timerInterval = setInterval(async () => {
       timeLeft--;
-
       const mins = Math.floor(timeLeft / 60);
       const secs = timeLeft % 60;
-      const timeString = `${mins}:${secs.toString().padStart(2, "0")}`;
+      const timeString = `${mins}:${secs.toString().padStart(2, '0')}`;
 
       this.isUrgent = timeLeft <= 30;
       this.timerStatusBar.text = `$(watch) TIEMPO: ${timeString}`;
 
       if (this.isUrgent) {
-        this.timerStatusBar.color = "#ff0080";
-        this.timerStatusBar.backgroundColor = new vscode.ThemeColor(
-          "statusBarItem.errorBackground",
-        );
+        this.timerStatusBar.color = '#ff0080';
+        this.timerStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         this.timerStatusBar.text = `$(warning) ¡ENTREGA: ${timeString}!`;
       } else {
-        this.timerStatusBar.color = "#00ffcc";
+        this.timerStatusBar.color = '#00ffcc';
         this.timerStatusBar.backgroundColor = undefined;
       }
 
       if (timeLeft <= 0) {
         this.stopCountdown();
-        this.playSound("stop.mp3");
-        await vscode.commands.executeCommand(
-          "code-sync.sendFullProjectSnapshot",
-        );
-        vscode.window.showWarningMessage(
-          "⏳ ¡TIEMPO AGOTADO! Despacho automático ejecutado.",
-        );
+        this.playSound('stop.mp3');
+        await vscode.commands.executeCommand('code-sync.sendFullProjectSnapshot');
+        vscode.window.showWarningMessage('⏳ ¡TIEMPO AGOTADO! Recolección automática ejecutada.');
       }
     }, 1000);
   }
@@ -376,27 +427,29 @@ export class SocketManager {
     if (msg) vscode.window.showInformationMessage(msg);
   }
 
-  /**
-   * Actualiza el proveedor virtual e inyecta datos en los webviews HTML abiertos.
-   */
-  private updateVirtualDocument(data: {
-    studentId: string;
-    filePath: string;
-    content: string;
-  }) {
+  private updateVirtualDocument(data: { studentId: string; filePath: string; content: string }) {
     if (!this.provider) return;
     const uri = CodeSyncProvider.createUri(data.studentId, data.filePath);
     this.provider.updateContent(uri, data.content);
 
-    if (data.filePath.toLowerCase().endsWith(".html")) {
+    if (data.filePath.toLowerCase().endsWith('.html')) {
       const panel = previews.get(uri.toString());
       if (panel) panel.webview.html = data.content;
     }
   }
 
+  private refreshChatStudentList() {
+    if (CodeSyncChatPanel.currentPanel) {
+      CodeSyncChatPanel.currentPanel.updateStudentList(this.activeStudentsList);
+    }
+  }
+
   public joinRoom(roomId: string, name: string, role: string) {
-    this.role = role; // Fijamos el rol localmente en el cliente para los validadores contextuales
-    this.socket.emit("join-room", { roomId, name, role });
+    this.role = role;
+    const config = vscode.workspace.getConfiguration('codeSync');
+    const accessKey = config.get<string>('teacherKey') || '';
+
+    this.socket.emit('join-room', { roomId, name, role, accessKey });
   }
 
   public emit(event: string, data: any) {
@@ -405,7 +458,11 @@ export class SocketManager {
 
   public emitChat(message: string, targetId?: string) {
     if (this.socket.connected) {
-      this.socket.emit("send-chat-message", { message, targetId });
+      this.socket.emit('send-chat-message', { message, targetId });
     }
+  }
+
+  public getChatHistory(): ChatPayload[] {
+    return this.chatHistoryBuffer;
   }
 }

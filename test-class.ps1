@@ -1,7 +1,7 @@
 # Matar procesos previos para asegurar limpieza
 # Stop-Process -Name "Code" -ErrorAction SilentlyContinue
 
-Write-Host "🚀 Lanzando entorno de clase..." -ForegroundColor Cyan
+Write-Host "Lanzando entorno de clase..." -ForegroundColor Cyan
 
 # Lanzar Estudiante
 Start-Process "code" -ArgumentList "--extensionDevelopmentPath=$PWD", "--user-data-dir=$PWD/.vscode/user-student", "--new-window"
@@ -18,4 +18,4 @@ Start-Sleep -Seconds 2
 # Lanzar Profesor
 Start-Process "code" -ArgumentList "--extensionDevelopmentPath=$PWD", "--user-data-dir=$PWD/.vscode/user-teacher", "--new-window"
 
-Write-Host "✅ Ventanas abiertas. ¡A darle, Profe!" -ForegroundColor Green
+Write-Host "Ventanas abiertas. ¡A darle, Profe!" -ForegroundColor Green
