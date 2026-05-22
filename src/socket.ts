@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { exec } from 'child_process';
 import { CodeSyncProvider } from './provider';
 import { StudentDataProvider } from './treeView';
@@ -13,6 +14,7 @@ interface UserJoinedPayload {
   name: string;
   role: string;
 }
+
 interface TelemetryPayload {
   studentId: string;
   name: string;
@@ -21,11 +23,13 @@ interface TelemetryPayload {
   isFocused?: boolean;
   activeFilePath?: string;
 }
+
 interface DisconnectPayload {
   socketId: string;
   studentName?: string;
   role?: string;
 }
+
 interface ChatPayload {
   senderId: string;
   sender: string;
@@ -35,11 +39,13 @@ interface ChatPayload {
   isPrivate: boolean;
   timestamp: string;
 }
+
 interface FileTreePayload {
   studentId: string;
   name: string;
   files: string[];
 }
+
 interface FileUpdatePayload {
   studentId: string;
   filePath: string;
@@ -149,11 +155,8 @@ export class SocketManager {
           ext.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         }
 
-        console.log(
-          '[CodeSync Sockets]: Autenticado como docente. Forzando sincronización de cuadrícula y árbol lateral...',
-        );
+        console.log('[CodeSync Sockets]: Autenticado como docente. Forzando sincronización de cuadrícula...');
         this.emit('request-dashboard-sync', {});
-
         vscode.window.showInformationMessage(`🔑 CodeSync: Autenticado con éxito como Docente.`);
       } else {
         vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
@@ -168,15 +171,25 @@ export class SocketManager {
         if (typeof ext.refreshAndSendTree === 'function') ext.refreshAndSendTree();
 
         vscode.window.showInformationMessage(`✅ CodeSync: Conectado con éxito a la sala.`);
+
+        // 🚀 AUTOMATIZACIÓN SUPREMA: Creamos el pasaporte digital y abrimos el navegador local automáticamente
+        if (payload?.name && payload?.roomId) {
+          const encodedName = encodeURIComponent(payload.name);
+          const encodedRoom = encodeURIComponent(payload.roomId);
+
+          // Sincronizado con el puerto estático local del backend
+          const urlDestino = `http://localhost:3000/public/index.html?room=${encodedRoom}&name=${encodedName}`;
+
+          console.log(`[CodeSync UX]: Desplegando panel web dinámico en: ${urlDestino}`);
+          vscode.env.openExternal(vscode.Uri.parse(urlDestino));
+        }
       }
     });
 
     this.socket.on('join-rejected', (reason: string) => {
       console.error(`[CodeSync Seguridad]: Conexión rebotada por el backend. Motivo: ${reason}`);
-
       const ext = require('./extension');
 
-      // 🛡️ PURGA DE CONTEXTOS RESIDUALES EN CALIENTE: Evita el bloqueo del entorno visual
       vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', false);
       vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
       vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
@@ -349,7 +362,7 @@ export class SocketManager {
 
     this.socket.on('timer-stopped', () => {
       this.playSound('stop.mp3');
-      this.stopCountdown('⚠️ Conteo regressivo cancelado por el docente.');
+      this.stopCountdown('⚠️ Conteo regresivo cancelado por el docente.');
     });
 
     this.socket.on(
