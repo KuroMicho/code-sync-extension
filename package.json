@@ -1,11 +1,12 @@
 {
   "name": "code-sync-extension-unip",
-  "publisher": "kevin-rodriguez",
+  "publisher": "KevinRodriguez",
+  "icon": "assets/icon.png",
   "displayName": "code-sync-extension",
   "description": "code sync",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
-    "vscode": "^1.118.0"
+    "vscode": "^1.122.0"
   },
   "categories": [
     "Other"
