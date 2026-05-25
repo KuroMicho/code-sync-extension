@@ -178,7 +178,7 @@ export class SocketManager {
           const encodedRoom = encodeURIComponent(payload.roomId);
 
           // Sincronizado con el puerto estático local del backend
-          const urlDestino = `http://localhost:3000/public/index.html?room=${encodedRoom}&name=${encodedName}`;
+          const urlDestino = `https://code-sync-client-flax.vercel.app/?room=${encodedRoom}&name=${encodedName}`;
 
           console.log(`[CodeSync UX]: Desplegando panel web dinámico en: ${urlDestino}`);
           vscode.env.openExternal(vscode.Uri.parse(urlDestino));

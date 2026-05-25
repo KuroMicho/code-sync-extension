@@ -56,7 +56,9 @@ function initializeUIContexts() {
 }
 
 function initializeCoreServices(context: vscode.ExtensionContext) {
-  socketManager = new SocketManager('http://localhost:3000', context);
+  const config = vscode.workspace.getConfiguration('codeSync');
+  const serverUrl = config.get<string>('serverUrl') || 'http://localhost:3000';
+  socketManager = new SocketManager(serverUrl, context);
   codeProvider = new CodeSyncProvider(socketManager);
   treeDataProvider = new StudentDataProvider();
 

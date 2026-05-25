@@ -1,7 +1,7 @@
 {
-  "name": "code-sync-client-unip",
+  "name": "code-sync-extension-unip",
   "publisher": "kevin-rodriguez",
-  "displayName": "code-sync-client",
+  "displayName": "code-sync-extension",
   "description": "code sync",
   "version": "0.0.1",
   "engines": {
