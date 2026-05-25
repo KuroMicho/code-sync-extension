@@ -57,7 +57,7 @@ function initializeUIContexts() {
 
 function initializeCoreServices(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('codeSync');
-  const serverUrl = config.get<string>('serverUrl') || 'http://localhost:3000';
+  const serverUrl = config.get<string>('serverUrl') || 'https://code-sync-server-fcvk.onrender.com';
   socketManager = new SocketManager(serverUrl, context);
   codeProvider = new CodeSyncProvider(socketManager);
   treeDataProvider = new StudentDataProvider();
