@@ -14,7 +14,7 @@ Sistema de sincronización y monitoreo de código en tiempo real diseñado para 
 
 Puedes configurar los parámetros de la extensión desde las preferencias de VS Code (`Ctrl + ,`):
 
-* `codeSync.serverUrl`: URL del servidor backend NestJS (Por defecto: `http://localhost:3000`).
+* `codeSync.serverUrl`: URL del servidor backend NestJS (Por defecto: `http://localhost:10000`).
 * `codeSync.teacherKey`: Clave maestra de autenticación docente para el blindaje y administración de salas.
 
 ## 🕹️ Comandos Principales (`Ctrl + Shift + P`)

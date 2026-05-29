@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
 
+interface IStudentNode {
+  name: string;
+  files: string[];
+}
+
 /**
  * Proveedor de datos para la vista lateral de "CodeSync: Classroom".
  * Maneja la jerarquía estructural y reactiva: Estudiante -> Archivos del Espacio de Trabajo.
@@ -8,12 +13,10 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
   private _onDidChangeTreeData = new vscode.EventEmitter<StudentTreeItem | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  // Mapa persistente en memoria: socketId -> { nombre, lista_de_archivos }
-  private students = new Map<string, { name: string; files: string[] }>();
+  private readonly students = new Map<string, IStudentNode>();
 
-  // Sets de telemetría reactivos para aislar los estados de cada estudiante
-  private studentsHelpStatus = new Set<string>();
-  private studentsPlagiarismStatus = new Set<string>();
+  private readonly studentsHelpStatus = new Set<string>();
+  private readonly studentsPlagiarismStatus = new Set<string>();
 
   /**
    * Modifica el estado de asistencia de un alumno y fuerza el refresco del árbol lateral.
@@ -43,7 +46,8 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
    * Inserta o actualiza el árbol de archivos reportado por el cliente de un estudiante.
    */
   public refresh(studentId: string, name: string, files: string[]): void {
-    this.students.set(studentId, { name, files });
+    const sanitizedFiles = files.map((file) => file.replace(/\\/g, '/'));
+    this.students.set(studentId, { name, files: sanitizedFiles });
     this._onDidChangeTreeData.fire();
   }
 
@@ -119,7 +123,7 @@ export class StudentDataProvider implements vscode.TreeDataProvider<StudentTreeI
  */
 export class StudentTreeItem extends vscode.TreeItem {
   constructor(
-    public readonly label: string,
+    public override readonly label: string,
     public readonly studentId: string | undefined,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
     public readonly isStudent: boolean,
@@ -129,7 +133,6 @@ export class StudentTreeItem extends vscode.TreeItem {
   ) {
     super(label, collapsibleState);
 
-    // Mantenemos un hash ID consistente para evitar saltos de scroll al redibujar
     this.id = isStudent ? studentId : `${studentId}-${filePath}`;
 
     if (isStudent) {
@@ -154,7 +157,7 @@ export class StudentTreeItem extends vscode.TreeItem {
       this.contextValue = 'student-help';
     } else {
       this.iconPath = new vscode.ThemeIcon('account');
-      this.description = 'En linea';
+      this.description = 'En línea';
       this.contextValue = 'student';
     }
   }
@@ -167,7 +170,7 @@ export class StudentTreeItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon(isImage ? 'file-media' : 'file-code');
     this.contextValue = 'file';
     this.description = '';
-    this.tooltip = `Inspeccionar codigo en vivo de: ${this.label}`;
+    this.tooltip = `Inspeccionar código en vivo de: ${this.label}`;
 
     // Configuración del click nativo para abrir el búfer virtual P2P de la extensión
     this.command = {

@@ -1,7 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
 import { exec } from 'child_process';
 import { CodeSyncProvider } from './provider';
 import { StudentDataProvider } from './treeView';
@@ -61,25 +60,29 @@ export class SocketManager {
   private provider?: CodeSyncProvider;
   private treeProvider?: StudentDataProvider;
 
-  // Propiedades del Cronómetro Técnico de Evaluación
   private timerInterval?: NodeJS.Timeout;
   private timerStatusBar: vscode.StatusBarItem;
+  private mainStatusBarItem: vscode.StatusBarItem; // 🔥 Inyección atómica directa para control de UI
   private isUrgent: boolean = false;
   private context: vscode.ExtensionContext;
 
-  // Cache contextual de privilegios y pool de estudiantes legítimos
   private role: string = '';
-  private activeStudentsList: { id: string; name: string }[] = [];
-  private chatHistoryBuffer: ChatPayload[] = [];
+  private currentRoomId: string = '';
+  private currentUserName: string = '';
+  private roomTargetEndTimestamp: number = 0;
+  private readonly activeStudentsList: { id: string; name: string }[] = [];
+  private readonly chatHistoryBuffer: ChatPayload[] = [];
 
-  constructor(serverUrl: string, context: vscode.ExtensionContext) {
+  // Recibe la barra de estado por el constructor para evadir el bug de ámbitos circulares
+  constructor(serverUrl: string, context: vscode.ExtensionContext, mainStatusBar: vscode.StatusBarItem) {
     this.context = context;
+    this.mainStatusBarItem = mainStatusBar;
 
-    // Configuración resiliente a fluctuaciones inalámbricas severas en salas de cómputo
     this.socket = io(`${serverUrl}/code-sync`, {
       transports: ['websocket'],
       autoConnect: true,
-      reconnectionAttempts: 10,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 3000,
     });
 
@@ -100,9 +103,16 @@ export class SocketManager {
     return this.activeStudentsList;
   }
 
-  /**
-   * Pipeline de ejecución de audio nativo por hilos en background según el Sistema Operativo.
-   */
+  public getCurrentUserName(): string {
+    return this.currentUserName;
+  }
+  public getCurrentRoomId(): string {
+    return this.currentRoomId;
+  }
+  public getUserRole(): string {
+    return this.role;
+  }
+
   private playSound(fileName: 'start.mp3' | 'stop.mp3') {
     const soundPath = path.join(this.context.extensionPath, 'assets', fileName);
     const winCommand = `powershell -c "Add-Type -AssemblyName PresentationCore; $mediaPlayer = New-Object System.Windows.Media.MediaPlayer; $mediaPlayer.Open('${soundPath}'); $mediaPlayer.Play(); Start-Sleep -s 3"`;
@@ -119,14 +129,12 @@ export class SocketManager {
     });
   }
 
-  /**
-   * Registro centralizado de eventos e interceptores de red.
-   */
   private setupListeners() {
     this.setupNetworkAndSecurityListeners();
     this.setupTelemetryAndHardwareListeners();
     this.setupCodeReplicationListeners();
     this.setupClassroomControlListeners();
+    this.setupResilienceAndRecoveryListeners();
   }
 
   // =================================================================
@@ -135,6 +143,11 @@ export class SocketManager {
   private setupNetworkAndSecurityListeners() {
     this.socket.on('connect', () => {
       console.log(`[CodeSync]: Canal de red establecido. ID: ${this.getSocketId()}`);
+
+      if (this.currentRoomId && this.currentUserName && this.role) {
+        console.log(`[CodeSync Resiliencia]: Re-negociando credenciales en Sala: ${this.currentRoomId}...`);
+        this.joinRoom(this.currentRoomId, this.currentUserName, this.role);
+      }
     });
 
     this.socket.on('connect_error', (err) => {
@@ -150,57 +163,53 @@ export class SocketManager {
         vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', true);
         vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
 
-        if (ext.statusBarItem) {
-          ext.statusBarItem.text = `$(shield) Profesor: ${payload?.roomId || 'SALA_ACTIVA'}`;
-          ext.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-        }
+        // Modificación de la barra de estado a través del puntero inyectado sin dependencias circulares
+        this.mainStatusBarItem.text = `$(shield) Profesor: ${payload?.roomId || 'SALA_ACTIVA'}`;
+        this.mainStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        this.mainStatusBarItem.show();
 
         console.log('[CodeSync Sockets]: Autenticado como docente. Forzando sincronización de cuadrícula...');
         this.emit('request-dashboard-sync', {});
         vscode.window.showInformationMessage(`🔑 CodeSync: Autenticado con éxito como Docente.`);
+        vscode.commands.executeCommand('workbench.view.extension.codesync-explorer');
       } else {
         vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
         vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', true);
 
-        if (ext.statusBarItem) {
-          ext.statusBarItem.text = `$(check) Estudiante: ${payload?.roomId || 'SALA_ACTIVA'}`;
-          ext.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.remoteBackground');
-        }
+        // 🔥 FIJACIÓN DE NOMBRE EN STATUS BAR: Control directo e inmune a Webpack
+        this.mainStatusBarItem.text = `$(account) Estudiante: ${payload?.name || this.currentUserName} | Sala: ${payload?.roomId || 'SALA'}`;
+        this.mainStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.remoteBackground');
+        this.mainStatusBarItem.show();
 
         if (typeof ext.startWpmTracker === 'function') ext.startWpmTracker();
         if (typeof ext.refreshAndSendTree === 'function') ext.refreshAndSendTree();
 
         vscode.window.showInformationMessage(`✅ CodeSync: Conectado con éxito a la sala.`);
 
-        // 🚀 AUTOMATIZACIÓN SUPREMA: Creamos el pasaporte digital y abrimos el navegador local automáticamente
         if (payload?.name && payload?.roomId) {
-          const encodedName = encodeURIComponent(payload.name);
-          const encodedRoom = encodeURIComponent(payload.roomId);
+          this.currentUserName = payload.name;
+          this.currentRoomId = payload.roomId;
 
-          // Sincronizado con el puerto estático local del backend
-          const urlDestino = `https://code-sync-client-flax.vercel.app/?room=${encodedRoom}&name=${encodedName}`;
-
-          console.log(`[CodeSync UX]: Desplegando panel web dinámico en: ${urlDestino}`);
-          vscode.env.openExternal(vscode.Uri.parse(urlDestino));
+          // 🔥 PARCHE DE FOCO DIRECTO: Fuerza la apertura instantánea del contenedor de CodeSync Classroom
+          vscode.commands.executeCommand('workbench.view.extension.codesync-explorer');
         }
       }
     });
 
     this.socket.on('join-rejected', (reason: string) => {
       console.error(`[CodeSync Seguridad]: Conexión rebotada por el backend. Motivo: ${reason}`);
-      const ext = require('./extension');
 
       vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', false);
       vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
       vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
 
-      if (ext.statusBarItem) {
-        ext.statusBarItem.text = '$(broadcast) CodeSync: Conectar';
-        ext.statusBarItem.backgroundColor = undefined;
-        ext.statusBarItem.show();
-      }
+      this.mainStatusBarItem.text = '$(broadcast) CodeSync: Conectar';
+      this.mainStatusBarItem.backgroundColor = undefined;
+      this.mainStatusBarItem.show();
 
-      this.activeStudentsList = [];
+      this.currentRoomId = '';
+      this.currentUserName = '';
+      this.activeStudentsList.length = 0;
       this.treeProvider?.clearAll();
       this.provider?.clearAll();
 
@@ -224,7 +233,8 @@ export class SocketManager {
       if (!data.role || data.role === 'student') {
         this.treeProvider?.removeStudent(id);
         this.provider?.deleteStudentContent(id);
-        this.activeStudentsList = this.activeStudentsList.filter((s) => s.id !== id);
+        const targetIndex = this.activeStudentsList.findIndex((s) => s.id === id);
+        if (targetIndex !== -1) this.activeStudentsList.splice(targetIndex, 1);
         this.refreshChatStudentList();
       }
 
@@ -319,7 +329,7 @@ export class SocketManager {
   }
 
   // =================================================================
-  // ⏳ CAPA 4: CANALES DE SOPORTE, CHAT Y RECONEXIÓN DE EXÁMENES
+  // ⏳ CAPA 4: CANALES DE SOPORTE, CHAT Y GESTIÓN DE EXÁMENES
   // =================================================================
   private setupClassroomControlListeners() {
     this.socket.on('chat-message-received', (data: ChatPayload) => {
@@ -367,14 +377,19 @@ export class SocketManager {
 
     this.socket.on(
       'final-submission-received',
-      async (data: { name: string; files: { path: string; content: string }[] }) => {
+      async (data: {
+        name: string;
+        files: { path: string; content: string }[];
+        plagiarismHistory?: { file: string; timestamp: string; wpm: number }[];
+      }) => {
         if (this.role !== 'teacher') return;
 
         const workspace = vscode.workspace.workspaceFolders?.[0];
         if (!workspace) return;
 
+        const rootDeliveriesUri = vscode.Uri.joinPath(workspace.uri, 'ENTREGAS_CODESYNC');
         const folderName = `ENTREGA_${data.name.replace(/\s+/g, '_')}`;
-        const rootUri = vscode.Uri.joinPath(workspace.uri, 'ENTREGAS_CODESYNC', folderName);
+        const studentFolderUri = vscode.Uri.joinPath(rootDeliveriesUri, folderName);
 
         await vscode.window.withProgress(
           {
@@ -385,10 +400,32 @@ export class SocketManager {
           async () => {
             try {
               for (const file of data.files) {
-                const fileUri = vscode.Uri.joinPath(rootUri, file.path);
+                const fileUri = vscode.Uri.joinPath(studentFolderUri, file.path);
                 await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'base64'));
               }
               vscode.window.showInformationMessage(`✅ Entrega de ${data.name} guardada en disco.`);
+
+              if (data.plagiarismHistory && data.plagiarismHistory.length > 0) {
+                const reportFileUri = vscode.Uri.joinPath(rootDeliveriesUri, 'REPORTES_PLAGIO.md');
+
+                let reportContent = '';
+                try {
+                  const existingRaw = await vscode.workspace.fs.readFile(reportFileUri);
+                  reportContent = Buffer.from(existingRaw).toString('utf8');
+                } catch (e) {
+                  reportContent = `# 🚨 CodeSync: Reporte de Auditoría de Plagio\n`;
+                  reportContent += `> Generado automáticamente al finalizar el temporizador de evaluación.\n\n`;
+                  reportContent += `| Estudiante | Fecha y Hora | Archivo / Ejercicio | Velocidad Detectada |\n`;
+                  reportContent += `| :--- | :--- | :--- | :--- |\n`;
+                }
+
+                data.plagiarismHistory.forEach((infraccion) => {
+                  reportContent += `| **${data.name}** | \`${infraccion.timestamp}\` | \`${infraccion.file}\` | ⚠️ **${infraccion.wpm} WPM** (Copy-Paste) |\n`;
+                });
+
+                await vscode.workspace.fs.writeFile(reportFileUri, Buffer.from(reportContent, 'utf8'));
+                console.log(`[CodeSync Auditoría]: Bitácora de plagio actualizada para ${data.name}`);
+              }
             } catch (e) {
               vscode.window.showErrorMessage(`Error fatal al escribir snapshot de ${data.name}`);
             }
@@ -399,9 +436,40 @@ export class SocketManager {
   }
 
   // =================================================================
+  // ♻️ CAPA 5: RESILIENCIA, RECUPERACIÓN REACTIVA E INMORTALIDAD 🛡️
+  // =================================================================
+  private setupResilienceAndRecoveryListeners() {
+    this.socket.on('timer-registered-on-teacher', (data: { targetEndTimestamp: number }) => {
+      this.roomTargetEndTimestamp = data.targetEndTimestamp;
+      console.log(
+        `[CodeSync Resiliencia]: Sello de tiempo guardado localmente: ${new Date(this.roomTargetEndTimestamp).toLocaleTimeString()}`,
+      );
+    });
+
+    this.socket.on('request-teacher-state-recovery', (data: { roomId: string }) => {
+      if (this.role === 'teacher' && this.roomTargetEndTimestamp > Date.now()) {
+        console.log('[CodeSync Resiliencia]: Servidor reiniciado detectado. Inyectando respaldo de sala...');
+        this.socket.emit('recover-timer-state', {
+          roomId: data.roomId,
+          targetEndTimestamp: this.roomTargetEndTimestamp,
+        });
+      }
+    });
+
+    this.socket.on('request-student-refresh', (data: { studentId: string; name: string }) => {
+      if (this.role === 'teacher') {
+        console.log(`[CodeSync Resiliencia]: Sincronizando nuevo estado para alumno reconectado: ${data.name}`);
+        if (!this.activeStudentsList.some((s) => s.id === data.studentId)) {
+          this.activeStudentsList.push({ id: data.studentId, name: data.name });
+          this.refreshChatStudentList();
+        }
+      }
+    });
+  }
+
+  // =================================================================
   // ⚙️ MÉTODOS AUXILIARES DE CONTROL Y ORQUESTACIÓN INTERNA
   // =================================================================
-
   private startCountdown(minutes: number) {
     this.stopCountdown();
     let timeLeft = Math.floor(minutes * 60);
@@ -409,6 +477,8 @@ export class SocketManager {
 
     this.timerInterval = setInterval(async () => {
       timeLeft--;
+      if (timeLeft < 0) timeLeft = 0;
+
       const mins = Math.floor(timeLeft / 60);
       const secs = timeLeft % 60;
       const timeString = `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -428,6 +498,7 @@ export class SocketManager {
       if (timeLeft <= 0) {
         this.stopCountdown();
         this.playSound('stop.mp3');
+        this.roomTargetEndTimestamp = 0;
         await vscode.commands.executeCommand('code-sync.sendFullProjectSnapshot');
         vscode.window.showWarningMessage('⏳ ¡TIEMPO AGOTADO! Recolección automática ejecutada.');
       }
@@ -459,6 +530,9 @@ export class SocketManager {
 
   public joinRoom(roomId: string, name: string, role: string) {
     this.role = role;
+    this.currentRoomId = roomId;
+    this.currentUserName = name;
+
     const config = vscode.workspace.getConfiguration('codeSync');
     const accessKey = config.get<string>('teacherKey') || '';
 

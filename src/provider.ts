@@ -8,17 +8,15 @@ import { SocketManager } from './socket';
 export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   public static readonly scheme = 'codesync';
 
-  // Almacen de contenido mapeado en memoria: URI String -> Codigo de fuente
   private readonly contentMap = new Map<string, string>();
 
-  // Emisor de eventos reactivo para forzar el redibujado de buffers de texto
   private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri>();
   public readonly onDidChange = this._onDidChange.event;
 
   constructor(private readonly socketManager: SocketManager) {}
 
   /**
-   * Metodo nativo del nucleo de VS Code: Se dispara al abrir una pestaña virtual.
+   * Método nativo del núcleo de VS Code: Se dispara al abrir una pestaña virtual.
    */
   public provideTextDocumentContent(uri: vscode.Uri): string {
     const cachedContent = this.contentMap.get(uri.toString());
@@ -28,10 +26,9 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
 
       this.requestInitialContent(uri);
 
-      // Buffer de texto temporal visible durante la negociacion de red P2P
       return [
-        '// [CodeSync]: Sincronizando codigo desde la PC del estudiante...',
-        '// La vista se actualizara automaticamente en segundos.',
+        '// [CodeSync]: Sincronizando código desde la PC del estudiante...',
+        '// La vista se actualizará automáticamente en segundos.',
         '// ----------------------------------------------------------------------',
         '// Nota: El alumno debe tener el archivo activo en su espacio de trabajo.',
       ].join('\n');
@@ -64,7 +61,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
           purgedCount++;
         }
       } catch (error) {
-        console.error(`[CodeSync Provider]: Error al parsear URI del cache durante purga: ${key}`);
+        console.error(`[CodeSync Provider]: Error al parsear URI del caché durante purga: ${key}`);
       }
     }
     console.log(
@@ -73,15 +70,15 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   }
 
   /**
-   * RESET TOTAL: Vaciado absoluto de cache para evitar persistencia de estados fantasmas entre clases.
+   * RESET TOTAL: Vaciado absoluto de caché para evitar persistencia de estados fantasmas entre clases.
    */
   public clearAll(): void {
     this.contentMap.clear();
-    console.log('[CodeSync Provider]: Cache de archivos vaciado por cambio de sesion.');
+    console.log('[CodeSync Provider]: Caché de archivos vaciado por cambio de sesión.');
   }
 
   /**
-   * Solicita de forma asincrona la inyeccion del buffer al socket del estudiante correspondiente.
+   * Solicita de forma asíncrona la inyección del buffer al socket del estudiante correspondiente.
    */
   private requestInitialContent(uri: vscode.Uri): void {
     const studentId = uri.authority;
@@ -98,15 +95,17 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   }
 
   /**
-   * Helper estatico para construir URIs bajo la nomenclatura estructurada: codesync://[socketId]/[ruta_relativa]
+   * Helper estático para construir URIs bajo la nomenclatura estructurada: codesync://[socketId]/[ruta_relativa]
    */
   public static createUri(studentId: string, filePath: string): vscode.Uri {
-    const normalizedPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+    const sanitizedPath = filePath.replace(/\\/g, '/');
+    const normalizedPath = sanitizedPath.startsWith('/') ? sanitizedPath : `/${sanitizedPath}`;
+
     return vscode.Uri.parse(`${CodeSyncProvider.scheme}://${studentId}${normalizedPath}`);
   }
 
   /**
-   * Recupera el contenido sincrono en memoria (Requerido por los paneles de Vista Previa HTML).
+   * Recupera el contenido síncrono en memoria (Requerido por los paneles de Vista Previa HTML).
    */
   public getContent(uriString: string): string | undefined {
     return this.contentMap.get(uriString);

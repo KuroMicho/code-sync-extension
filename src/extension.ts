@@ -4,16 +4,17 @@ import { CodeSyncProvider } from './provider';
 import { StudentDataProvider, StudentTreeItem } from './treeView';
 import { CodeSyncChatPanel } from './chatPanel';
 import { CodeSyncDashboard } from './dashboardPanel';
+import * as path from 'path';
 
 // --- VARIABLES DE CONTROL CORE EXPORTADAS ---
 export let treeDataProvider: StudentDataProvider;
 export let statusBarItem: vscode.StatusBarItem;
 
-// --- MEMORIA VOLATIL DE SERVICIOS INTERNOS ---
+// --- MEMORIA VOLÁTIL DE SERVICIOS INTERNOS ---
 let socketManager: SocketManager;
 let codeProvider: CodeSyncProvider;
 
-// --- ESTADO DE SESIÓN DINÁMICA ---
+// --- ESTADO DE SESIÓN DINÁMICA PERSISTENTE ---
 let changeTimeout: NodeJS.Timeout | undefined;
 let wmpInterval: NodeJS.Timeout | undefined;
 let currentRoomId: string | undefined;
@@ -57,17 +58,20 @@ function initializeUIContexts() {
 
 function initializeCoreServices(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('codeSync');
-  const serverUrl = config.get<string>('serverUrl') || 'https://code-sync-server-fcvk.onrender.com';
-  socketManager = new SocketManager(serverUrl, context);
-  codeProvider = new CodeSyncProvider(socketManager);
-  treeDataProvider = new StudentDataProvider();
+  const serverUrl = config.get<string>('codeSync.serverUrl') || 'http://localhost:10000';
 
-  socketManager.setProviders(codeProvider, treeDataProvider);
-
+  // 1. Inicializamos primero la barra de estado base para alojarla en la memoria de la UI
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.command = 'code-sync.joinRoom';
   statusBarItem.text = '$(broadcast) CodeSync: Conectar';
   statusBarItem.show();
+
+  // 2. Rompemos la dependencia circular inyectando la barra de estado directamente al constructor
+  socketManager = new SocketManager(serverUrl, context, statusBarItem);
+  codeProvider = new CodeSyncProvider(socketManager);
+  treeDataProvider = new StudentDataProvider();
+
+  socketManager.setProviders(codeProvider, treeDataProvider);
 }
 
 function setupClassroomTreeExplorer() {
@@ -125,10 +129,25 @@ export const startWpmTracker = () => {
     const currentWPM = Math.round(words * 12);
     const detectedCopyPaste = keystrokeCount > 150;
 
+    let relativeFilePath = 'Archivo no especificado';
+    const activeEditor = vscode.window.activeTextEditor;
+
+    if (activeEditor) {
+      const fullPath = activeEditor.document.uri.fsPath;
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+      if (workspaceFolder) {
+        relativeFilePath = path.relative(workspaceFolder.uri.fsPath, fullPath).replace(/\\/g, '/');
+      } else {
+        relativeFilePath = path.basename(fullPath);
+      }
+    }
+
     socketManager.emit('student-wpm-update', {
       roomId: currentRoomId,
       wpm: currentWPM,
       isCopyPaste: detectedCopyPaste,
+      filePath: relativeFilePath,
     });
 
     keystrokeCount = 0;
@@ -142,17 +161,26 @@ export const startWpmTracker = () => {
 function registerClassroomCommands(context: vscode.ExtensionContext) {
   // Comando: Ingreso Seguro y Autenticación de Salas
   const joinCommand = vscode.commands.registerCommand('code-sync.joinRoom', async () => {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showErrorMessage(
+        'CodeSync Error: Debes abrir una carpeta o directorio de trabajo en VS Code antes de unirte a una sala.',
+      );
+      return;
+    }
+
     const roomId = await vscode.window.showInputBox({
       title: 'Conectarse a la Clase',
-      prompt: 'Escribe el codigo de la sala provisto por el docente',
+      prompt: 'Escribe el código de la sala provisto por el docente',
       placeHolder: 'Ejemplo: LAB-404, PROGRAMACION_AVANZADA',
       ignoreFocusOut: true,
-      validateInput: (val) => (val.trim() ? null : 'Error: Campo obligatorio para ubicar el cluster.'),
+      validateInput: (val) => (val.trim() ? null : 'Error: Campo obligatorio para ubicar el clúster.'),
     });
     if (!roomId) return;
 
     const name = await vscode.window.showInputBox({
-      title: 'Identificacion de Sesion',
+      title: 'Identificación de Sesión',
       prompt: 'Ingresa tu nombre y apellido completo para la planilla legal',
       placeHolder: 'Ejemplo: Kevin Mendoza',
       ignoreFocusOut: true,
@@ -248,7 +276,7 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
     if (localUris.length === 0) return;
 
     const uniqueUris = Array.from(new Set(localUris.map((u) => u.toString()))).map((s) => vscode.Uri.parse(s));
-    const btnConfirmar = 'Si, iniciar transmision masiva';
+    const btnConfirmar = 'Si, iniciar transmisión masiva';
     const ok = await vscode.window.showWarningMessage(
       `¿Deseas enviar este paquete de ${uniqueUris.length} archivos a toda la sala de desarrollo?`,
       btnConfirmar,
@@ -257,14 +285,14 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
 
     if (ok === btnConfirmar) {
       for (const uri of uniqueUris) await sendFile(uri);
-      vscode.window.showInformationMessage(`Paquete de sincronizacion masiva completado.`);
+      vscode.window.showInformationMessage(`Paquete de sincronización masiva completado.`);
     }
   });
 
   // Comandos de Exámenes y Cronómetros
   const startTimerCmd = vscode.commands.registerCommand('code-sync.startTimer', async () => {
     const minutes = await vscode.window.showInputBox({
-      prompt: 'Duracion establecida para el desafio tecnico (Minutos):',
+      prompt: 'Duración establecida para el desafío técnico (Minutos):',
     });
     if (minutes && currentRoomId) {
       socketManager.emit('start-timer', { roomId: currentRoomId, minutes: parseInt(minutes) });
@@ -314,7 +342,7 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
   const requestHelpCmd = vscode.commands.registerCommand('code-sync.requestHelp', () => {
     if (isTeacher) return;
     socketManager.emit('request-help', {});
-    vscode.window.showInformationMessage('Has solicitado asistencia tecnica presencial.');
+    vscode.window.showInformationMessage('Has solicitado asistencia técnica presencial.');
   });
 
   const resolveHelpCmd = vscode.commands.registerCommand('code-sync.resolveHelp', (item: StudentTreeItem) => {
@@ -375,6 +403,29 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
     );
   });
 
+  // 🔥 BOTÓN DE RESCATE: Iniciar Desafíos (Redirección limpia a Five Server)
+  const reopenWebPanelCommand = vscode.commands.registerCommand('code-sync.reopenWebPanel', () => {
+    if (!socketManager) return;
+
+    const name = socketManager.getCurrentUserName();
+    const roomId = socketManager.getCurrentRoomId();
+    const role = socketManager.getUserRole();
+
+    if (!roomId || !name) {
+      vscode.window.showWarningMessage('⚠️ CodeSync: No se detectó ninguna sesión activa para abrir el panel.');
+      return;
+    }
+
+    if (role === 'student') {
+      const encodedName = encodeURIComponent(name);
+      const encodedRoom = encodeURIComponent(roomId);
+      const urlDestino = `http://localhost:5500/?room=${encodedRoom}&name=${encodedName}`;
+
+      console.log(`[CodeSync UX]: Abriendo panel de desafíos solicitado: ${urlDestino}`);
+      vscode.env.openExternal(vscode.Uri.parse(urlDestino));
+    }
+  });
+
   context.subscriptions.push(
     joinCommand,
     openFileCommand,
@@ -391,6 +442,7 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
     internalRefreshCmd,
     openChatCmd,
     openDashboardCmd,
+    reopenWebPanelCommand,
   );
 }
 
@@ -399,13 +451,11 @@ function registerClassroomCommands(context: vscode.ExtensionContext) {
 // =================================================================
 
 function setupBackgroundTelemetryWatchers(context: vscode.ExtensionContext) {
-  // Auditoría: Estado de Enfoque (Foco de Ventana de Sistema Operativo)
   const focusWatcher = vscode.window.onDidChangeWindowState((state) => {
     if (isTeacher || !currentRoomId) return;
     socketManager.emit('student-focus-change', { roomId: currentRoomId, isFocused: state.focused });
   });
 
-  // Auditoría: Interceptor Debounced de Escritura Activa
   const onType = vscode.workspace.onDidChangeTextDocument((e) => {
     if (isTeacher || !currentRoomId || e.contentChanges.length === 0) return;
 
@@ -420,10 +470,9 @@ function setupBackgroundTelemetryWatchers(context: vscode.ExtensionContext) {
         filePath: vscode.workspace.asRelativePath(e.document.uri),
         content: e.document.getText(),
       });
-    }, 300); // Debounce de 300ms contra microcortes inalámbricos de aula
+    }, 300);
   });
 
-  // Auditoría: Rastreador Dinámico del Buffer Abierto por el Alumno
   const activeEditorWatcher = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (isTeacher || !currentRoomId || !editor || editor.document.uri.scheme !== 'file') return;
 
@@ -433,17 +482,10 @@ function setupBackgroundTelemetryWatchers(context: vscode.ExtensionContext) {
     });
   });
 
-  // Auditoría: Escudo del Árbol de Ficheros Local contra Altas/Bajas del Alumno
   const fsWatcher = vscode.workspace.createFileSystemWatcher('**/*');
-  fsWatcher.onDidCreate(() => {
-    if (!isTeacher) refreshAndSendTree();
-  });
-  fsWatcher.onDidDelete(() => {
-    if (!isTeacher) refreshAndSendTree();
-  });
-  fsWatcher.onDidChange(() => {
-    if (!isTeacher) refreshAndSendTree();
-  });
+  fsWatcher.onDidCreate(() => { if (!isTeacher) refreshAndSendTree(); });
+  fsWatcher.onDidDelete(() => { if (!isTeacher) refreshAndSendTree(); });
+  fsWatcher.onDidChange(() => { if (!isTeacher) refreshAndSendTree(); });
 
   context.subscriptions.push(
     focusWatcher,

@@ -4,7 +4,7 @@
   "icon": "assets/icon.png",
   "displayName": "code-sync-extension",
   "description": "code sync",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.121.0"
   },
@@ -21,7 +21,7 @@
       "properties": {
         "codeSync.serverUrl": {
           "type": "string",
-          "default": "http://localhost:3000",
+          "default": "http://localhost:10000",
           "description": "URL del servidor backend NestJS."
         },
         "codeSync.teacherKey": {
@@ -99,6 +99,11 @@
       {
         "command": "code-sync.resolveHelp",
         "title": "Marcar como Atendido"
+      },
+      {
+        "command": "code-sync.reopenWebPanel",
+        "title": "🖥️ CodeSync: Iniciar Desafíos",
+        "icon": "$(browser)"
       }
     ],
     "menus": {
@@ -188,14 +193,14 @@
       {
         "view": "studentsList",
         "when": "isCodeSyncStudent",
-        "contents": "✨ Conectado como Estudiante\nEl profesor está supervisando tu progreso.\n\nEstado: Sincronizando en vivo $(sync~spin)\n\n[$(book) Instrucciones de uso](command:code-sync.showHelp)\n\n[$(sign-out) Salir de la sala](command:workbench.action.reloadWindow)"
+        "contents": "✨ Conectado como Estudiante\nEl profesor está supervisando tu progreso en tiempo real.\n\nEstado: Sincronizando en vivo $(sync~spin)\n\n[$(browser) Iniciar Desafíos](command:code-sync.reopenWebPanel)\n\n[$(book) Instrucciones de uso](command:code-sync.showHelp)\n\n[$(sign-out) Salir de la sala](command:workbench.action.reloadWindow)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "codesync-explorer",
-          "title": "CodeSync Class",
+          "title": "CodeSync",
           "icon": "$(broadcast)"
         }
       ]

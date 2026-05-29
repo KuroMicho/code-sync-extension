@@ -39,12 +39,11 @@ export class CodeSyncDashboard {
    * Procesa la telemetría entrante del socket y refresca la UI de la cuadrícula.
    */
   public updateTelemetry(data: any) {
-    // CASO A: Gestión inteligente de desconexiones (Evita residuos al recargar el navegador)
+    // CASO A: Gestión inteligente de desconexiones
     if (data.disconnected || (data.role === 'student-web' && data.socketId)) {
       const targetName = data.studentName;
 
       if (data.role === 'student-web' && targetName) {
-        // Si solo se cayó la web (recarga), le apagamos el flag a la tarjeta real sin destruirla
         for (const [id, student] of this._studentsData.entries()) {
           if (student.name === targetName) {
             this._studentsData.set(id, { ...student, screenLinked: false });
@@ -52,7 +51,6 @@ export class CodeSyncDashboard {
           }
         }
       } else {
-        // Si se desconecta el VS Code entero, limpiamos por socketId
         const idToRemove = data.socketId || data.studentId;
         if (idToRemove) this._studentsData.delete(idToRemove);
       }
@@ -61,11 +59,10 @@ export class CodeSyncDashboard {
       return;
     }
 
-    // CASO B: Vinculación o recarga desde la PÁGINA WEB del alumno (trae studentName)
+    // CASO B: Vinculación o recarga desde la PÁGINA WEB del alumno
     if (data.studentName && !data.studentId) {
       let enlazado = false;
 
-      // 1. Buscamos si ya existe la tarjeta de VS Code para inyectarle el estado en vivo
       for (const [id, student] of this._studentsData.entries()) {
         if (student.name === data.studentName) {
           this._studentsData.set(id, { ...student, screenLinked: true });
@@ -74,7 +71,6 @@ export class CodeSyncDashboard {
         }
       }
 
-      // 2. Si el alumno abre la web antes que el VS Code, creamos el contenedor virtual temporal
       if (!enlazado) {
         const virtualId = `web-${data.studentName.replace(/\s+/g, '-').toLowerCase()}`;
         this._studentsData.set(virtualId, {
@@ -86,18 +82,16 @@ export class CodeSyncDashboard {
           isAskingHelp: false,
           isCopyPaste: false,
           activeFilePath: '',
+          ultimoCodigoPicado: '',
         });
       }
     }
     // CASO C: Telemetría pura desde la extensión de VS Code
     else {
-      // 🔒 FILTRO DE SALVAGUARDA: Si el paquete inicial viene de un rol web sin ID válido, lo ignoramos
-      // para evitar la creación de tarjetas fantasma llamadas "Estudiante"
       if (data.role === 'student-web' || (!data.studentId && !data.id)) return;
 
       const id = data.studentId || data.id;
 
-      // Si existía un contenedor temporal de la web, heredamos su flag y limpiamos el nodo virtual
       const virtualId = `web-${data.name ? data.name.replace(/\s+/g, '-').toLowerCase() : ''}`;
       let cachedWebLinked = false;
       if (this._studentsData.has(virtualId)) {
@@ -106,8 +100,6 @@ export class CodeSyncDashboard {
       }
 
       const prevData = this._studentsData.get(id) || {};
-
-      // Impedimos que se machaque el nombre real con strings vacíos o genéricos
       const finalName = data.name && data.name !== 'Estudiante' ? data.name : prevData.name || 'Alumno Activo';
 
       this._studentsData.set(id, {
@@ -145,35 +137,34 @@ export class CodeSyncDashboard {
                     h2 { border-bottom: 2px solid #1a1a24; padding-bottom: 10px; margin-top: 0; margin-bottom: 25px; letter-spacing: 1px; }
                     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
                     
-                    /* Tarjeta Base Cyberpunk */
                     .card { 
                         background: #0f0f15; border: 1px solid #00ffcc33; padding: 16px; 
                         border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); 
-                        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;
-                        position: relative; overflow: hidden;
+                        transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s ease, box-shadow 0.2s ease; 
+                        cursor: pointer; position: relative; overflow: hidden;
                         display: flex; flex-direction: column; justify-content: space-between;
-                    }
-                    .card:hover { 
-                        transform: translateY(-4px); border-color: #00ffcc; 
-                        box-shadow: 0 0 15px rgba(0, 255, 204, 0.2); 
+                        will-change: transform; /* Fuerza la aceleración gráfica por GPU en el Webview */
                     }
                     
-                    /* Estados Especiales */
+                    .card:hover { 
+                        transform: translateY(-4px); 
+                        border-color: #00ffcc; 
+                        box-shadow: 0 6px 20px rgba(0, 255, 204, 0.15); 
+                    }
+                    
                     .card.unfocused { border-color: #ffaa0055; background: #120f0a; }
-                    .card.unfocused:hover { border-color: #ffaa00; box-shadow: 0 0 15px rgba(255, 170, 0, 0.2); }
+                    .card.unfocused:hover { border-color: #ffaa00; box-shadow: 0 6px 20px rgba(255, 170, 0, 0.15); }
                     
                     .card.asking-help { border-color: #ff008088; background: #160810; }
-                    .card.asking-help:hover { border-color: #ff0080; box-shadow: 0 0 15px rgba(255, 0, 128, 0.3); }
+                    .card.asking-help:hover { border-color: #ff0080; box-shadow: 0 6px 20px rgba(255, 0, 128, 0.2); }
                     
                     .card.plagiarism-alert { border-color: #ff0033; background: #20050b; animation: pulse-border 1.5s infinite; }
                     
-                    /* Estructura Interna */
                     .name { font-size: 1.15em; font-weight: bold; margin-bottom: 10px; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                     .metrics { display: flex; flex-direction: column; gap: 6px; font-size: 0.9em; margin-bottom: 12px; }
                     .metric-line { display: flex; justify-content: space-between; border-bottom: 1px dashed #1a1a24; padding-bottom: 2px; align-items: center; }
                     .metric-val { font-weight: bold; }
                     
-                    /* Badges Neón */
                     .badge { padding: 3px 6px; font-size: 0.75em; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
                     .badge.online { background: #00ffcc15; color: #00ffcc; border: 1px solid #00ffcc44; }
                     .badge.away { background: #ffaa0015; color: #ffaa00; border: 1px solid #ffaa0044; }
@@ -184,17 +175,19 @@ export class CodeSyncDashboard {
                     .badge.web-unlinked { background: rgba(138, 138, 157, 0.1); color: #8a8a9d; border: 1px solid #8a8a9d44; }
 
                     .card-actions { margin-top: 10px; }
+                    
                     .btn-capturar {
                         width: 100%; padding: 8px; background: transparent;
                         border: 1px solid #00ffcc; color: #00ffcc;
                         font-family: 'Courier New', monospace; font-weight: bold;
-                        border-radius: 4px; cursor: pointer; transition: all 0.2s ease;
-                    }
-                    .btn-capturar:hover:not(:disabled) {
-                        background: #00ffcc; color: #000000; box-shadow: 0 0 10px #00ffcc;
+                        border-radius: 4px; cursor: pointer; 
+                        transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
                     }
 
-                    /* MODAL CYBERPUNK FLOTANTE */
+                    .btn-capturar:hover:not(:disabled) {
+                        background: #00ffcc; color: #000000; box-shadow: 0 0 12px rgba(0, 255, 204, 0.6);
+                    }
+
                     .modal-cyber {
                         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                         background: rgba(5, 5, 10, 0.85); backdrop-filter: blur(8px);
