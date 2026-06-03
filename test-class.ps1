@@ -7,10 +7,10 @@ Write-Host "Lanzando entorno de clase..." -ForegroundColor Cyan
 Start-Process "code" -ArgumentList "--extensionDevelopmentPath=$PWD", "--user-data-dir=$PWD/.vscode/user-student", "--new-window"
 
 # Esperar 2 segundos para que no choquen al arrancar
-# Start-Sleep -Seconds 2
+Start-Sleep -Seconds 2
 
 # Lanzar Estudiante_2
-# Start-Process "code" -ArgumentList "--extensionDevelopmentPath=$PWD", "--user-data-dir=$PWD/.vscode/user-student_2", "--new-window"
+Start-Process "code" -ArgumentList "--extensionDevelopmentPath=$PWD", "--user-data-dir=$PWD/.vscode/user-student_2", "--new-window"
 
 # Esperar 2 segundos para que no choquen al arrancar
 Start-Sleep -Seconds 2

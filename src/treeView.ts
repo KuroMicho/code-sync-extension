@@ -167,8 +167,9 @@ export class StudentTreeItem extends vscode.TreeItem {
    */
   private configureFileNode(): void {
     const isImage = /\.(jpg|jpeg|png|gif|ico|svg)$/i.test(this.label);
+    const isHtml = /\.html?$/i.test(this.label);
     this.iconPath = new vscode.ThemeIcon(isImage ? 'file-media' : 'file-code');
-    this.contextValue = 'file';
+    this.contextValue = isHtml ? 'file-html' : 'file';
     this.description = '';
     this.tooltip = `Inspeccionar código en vivo de: ${this.label}`;
 

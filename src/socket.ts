@@ -4,7 +4,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { CodeSyncProvider } from './provider';
 import { StudentDataProvider } from './treeView';
-import { previews } from './extension';
+import { previews, startFocusTracking, stopFocusTracking } from './extension';
 import { CodeSyncChatPanel } from './chatPanel';
 import { CodeSyncDashboard } from './dashboardPanel';
 
@@ -62,7 +62,7 @@ export class SocketManager {
 
   private timerInterval?: NodeJS.Timeout;
   private timerStatusBar: vscode.StatusBarItem;
-  private mainStatusBarItem: vscode.StatusBarItem; // 🔥 Inyección atómica directa para control de UI
+  private mainStatusBarItem: vscode.StatusBarItem;
   private isUrgent: boolean = false;
   private context: vscode.ExtensionContext;
 
@@ -137,9 +137,7 @@ export class SocketManager {
     this.setupResilienceAndRecoveryListeners();
   }
 
-  // =================================================================
-  // 🛰️ CAPA 1: RED, AUTENTICACIÓN Y SEGURIDAD CRIPTOGRÁFICA
-  // =================================================================
+  // Network and Security Listeners
   private setupNetworkAndSecurityListeners() {
     this.socket.on('connect', () => {
       console.log(`[CodeSync]: Canal de red establecido. ID: ${this.getSocketId()}`);
@@ -176,7 +174,6 @@ export class SocketManager {
         vscode.commands.executeCommand('setContext', 'isCodeSyncTeacher', false);
         vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', true);
 
-        // 🔥 FIJACIÓN DE NOMBRE EN STATUS BAR: Control directo e inmune a Webpack
         this.mainStatusBarItem.text = `$(account) Estudiante: ${payload?.name || this.currentUserName} | Sala: ${payload?.roomId || 'SALA'}`;
         this.mainStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.remoteBackground');
         this.mainStatusBarItem.show();
@@ -190,7 +187,6 @@ export class SocketManager {
           this.currentUserName = payload.name;
           this.currentRoomId = payload.roomId;
 
-          // 🔥 PARCHE DE FOCO DIRECTO: Fuerza la apertura instantánea del contenedor de CodeSync Classroom
           vscode.commands.executeCommand('workbench.view.extension.codesync-explorer');
         }
       }
@@ -250,18 +246,35 @@ export class SocketManager {
     });
   }
 
-  // =================================================================
-  // 📸 CAPA 2: TELEMETRÍA AVANZADA Y PERMISOS DE HARDWARE
-  // =================================================================
+  // Telemetry and Hardware Listeners
   private setupTelemetryAndHardwareListeners() {
-    this.socket.on('screenshot-received', (data: { studentName: string; image: ArrayBuffer }) => {
-      if (CodeSyncDashboard.currentPanel) {
-        const rawBinaryArray = new Uint8Array(data.image);
+    this.socket.on('screenshot-received', async (data: { studentName: string; image: ArrayBuffer; isAutomated?: boolean }) => {
+      const rawBinaryArray = new Uint8Array(data.image);
+
+      if (!data.isAutomated && CodeSyncDashboard.currentPanel) {
         CodeSyncDashboard.currentPanel['_panel'].webview.postMessage({
           command: 'screenshot-received',
           studentName: data.studentName,
           imageArray: rawBinaryArray,
         });
+      }
+
+      if (this.role === 'teacher') {
+        const workspace = vscode.workspace.workspaceFolders?.[0];
+        if (workspace) {
+          try {
+            const rootDeliveriesUri = vscode.Uri.joinPath(workspace.uri, 'ENTREGAS_CODESYNC');
+            const folderName = `ENTREGA_${data.studentName.replace(/\s+/g, '_')}`;
+            const capturasFolder = vscode.Uri.joinPath(rootDeliveriesUri, folderName, 'Capturas');
+
+            await vscode.workspace.fs.createDirectory(capturasFolder);
+            const timestamp = new Date().toLocaleTimeString('es-CO', { hour12: false }).replace(/:/g, '-');
+            const fileUri = vscode.Uri.joinPath(capturasFolder, `captura_${timestamp}.jpg`);
+            await vscode.workspace.fs.writeFile(fileUri, rawBinaryArray);
+          } catch (e) {
+            console.error('[CodeSync Error] Guardando captura automática:', e);
+          }
+        }
       }
     });
 
@@ -276,9 +289,7 @@ export class SocketManager {
     });
   }
 
-  // =================================================================
-  // 💻 CAPA 3: TRANSMISIÓN Y TRÁFICO EN TIEMPO REAL DE CÓDIGO
-  // =================================================================
+  // Real-time Code Replication Listeners
   private setupCodeReplicationListeners() {
     this.socket.on('student-file-tree', (data: FileTreePayload) => {
       console.log(`[CodeSync Replicación]: Estructura de archivos recibida para ${data.name}`);
@@ -294,6 +305,17 @@ export class SocketManager {
 
     this.socket.on('code-remote-update', (data: FileUpdatePayload) => this.updateVirtualDocument(data));
     this.socket.on('file-content-received', (data: FileUpdatePayload) => this.updateVirtualDocument(data));
+
+    this.socket.on('force-sync-code', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document.uri.scheme === 'file') {
+        this.emit('code-update', {
+          roomId: this.currentRoomId,
+          filePath: vscode.workspace.asRelativePath(editor.document.uri),
+          content: editor.document.getText(),
+        });
+      }
+    });
 
     this.socket.on('get-content', async (data: { teacherId: string; filePath: string }) => {
       const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -317,6 +339,25 @@ export class SocketManager {
 
       const fileUri = vscode.Uri.joinPath(workspace.uri, data.fileName);
       try {
+        // Verificar si el archivo ya existe
+        try {
+          await vscode.workspace.fs.stat(fileUri);
+
+          // Si no lanza error, el archivo existe. Preguntamos al estudiante.
+          const confirm = await vscode.window.showWarningMessage(
+            `El archivo '${data.fileName}' ya existe en tu entorno. ¿Deseas sobreescribirlo y perder tus avances actuales?`,
+            { modal: true },
+            'Sí, Sobreescribir'
+          );
+
+          if (confirm !== 'Sí, Sobreescribir') {
+            vscode.window.showInformationMessage(`Se canceló la inyección del archivo '${data.fileName}'.`);
+            return; // Abortar escritura
+          }
+        } catch (err) {
+          // Si fs.stat lanza error, significa que el archivo NO existe. Continuamos.
+        }
+
         await vscode.workspace.fs.writeFile(fileUri, Buffer.from(data.initialContent, 'base64'));
         if (!/\.(jpg|jpeg|png|gif|ico|svg)$/i.test(data.fileName)) {
           const doc = await vscode.workspace.openTextDocument(fileUri);
@@ -328,9 +369,7 @@ export class SocketManager {
     });
   }
 
-  // =================================================================
-  // ⏳ CAPA 4: CANALES DE SOPORTE, CHAT Y GESTIÓN DE EXÁMENES
-  // =================================================================
+  // Classroom Control and Chat Listeners
   private setupClassroomControlListeners() {
     this.socket.on('chat-message-received', (data: ChatPayload) => {
       this.playSound('start.mp3');
@@ -341,6 +380,7 @@ export class SocketManager {
 
       if (!esMensajeDuplicado) {
         this.chatHistoryBuffer.push(data);
+        if (this.chatHistoryBuffer.length > 100) this.chatHistoryBuffer.shift();
       }
 
       if (CodeSyncChatPanel.currentPanel) {
@@ -357,21 +397,47 @@ export class SocketManager {
     this.socket.on('student-help-requested', (data: { studentId: string }) => {
       this.treeProvider?.setHelpStatus(data.studentId, true);
       vscode.window.showInformationMessage(`🙋‍♂️ Un estudiante solicita ayuda presencial.`);
+      if (CodeSyncDashboard.currentPanel) {
+        CodeSyncDashboard.currentPanel.updateTelemetry({ studentId: data.studentId, isAskingHelp: true });
+      }
     });
 
     this.socket.on('student-help-resolved', (data: { studentId: string }) => {
       this.treeProvider?.setHelpStatus(data.studentId, false);
+      if (CodeSyncDashboard.currentPanel) {
+        CodeSyncDashboard.currentPanel.updateTelemetry({ studentId: data.studentId, isAskingHelp: false });
+      }
+    });
+
+    this.socket.on('kicked-by-teacher', async () => {
+      await vscode.window.showErrorMessage('Has sido expulsado de la sala por el profesor.', { modal: true });
+      this.socket.disconnect();
+      vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', false);
+      vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
+      this.treeProvider?.clearAll();
+      vscode.commands.executeCommand('workbench.action.reloadWindow');
+    });
+
+    this.socket.on('force-reload-extension', async () => {
+      await vscode.window.showWarningMessage('⚠️ Has iniciado sesión desde otra ubicación o cambiaste de sala. Esta sesión será cerrada por seguridad.', { modal: true });
+      this.socket.disconnect();
+      vscode.commands.executeCommand('setContext', 'isCodeSyncJoined', false);
+      vscode.commands.executeCommand('setContext', 'isCodeSyncStudent', false);
+      this.treeProvider?.clearAll();
+      vscode.commands.executeCommand('workbench.action.reloadWindow');
     });
 
     this.socket.on('request-sync', () => vscode.commands.executeCommand('code-sync.internalRefreshTree'));
 
     this.socket.on('timer-started', (data: { minutes: number }) => {
       this.playSound('start.mp3');
+      if (this.role === 'student') startFocusTracking();
       this.startCountdown(data.minutes);
     });
 
     this.socket.on('timer-stopped', () => {
       this.playSound('stop.mp3');
+      if (this.role === 'student') stopFocusTracking();
       this.stopCountdown('⚠️ Conteo regresivo cancelado por el docente.');
     });
 
@@ -381,6 +447,7 @@ export class SocketManager {
         name: string;
         files: { path: string; content: string }[];
         plagiarismHistory?: { file: string; timestamp: string; wpm: number }[];
+        focusStats?: { activeMs: number; inactiveMs: number };
       }) => {
         if (this.role !== 'teacher') return;
 
@@ -405,27 +472,44 @@ export class SocketManager {
               }
               vscode.window.showInformationMessage(`✅ Entrega de ${data.name} guardada en disco.`);
 
-              if (data.plagiarismHistory && data.plagiarismHistory.length > 0) {
-                const reportFileUri = vscode.Uri.joinPath(rootDeliveriesUri, 'REPORTES_PLAGIO.md');
+              // Generar Reporte de Auditoría Individual
+              const reportFileUri = vscode.Uri.joinPath(studentFolderUri, 'REPORTE_AUDITORIA.md');
+              let reportContent = `# 🚨 CodeSync: Reporte de Auditoría\n`;
+              reportContent += `> Estudiante: **${data.name}**\n`;
+              reportContent += `> Generado automáticamente al finalizar el temporizador.\n\n`;
 
-                let reportContent = '';
-                try {
-                  const existingRaw = await vscode.workspace.fs.readFile(reportFileUri);
-                  reportContent = Buffer.from(existingRaw).toString('utf8');
-                } catch (e) {
-                  reportContent = `# 🚨 CodeSync: Reporte de Auditoría de Plagio\n`;
-                  reportContent += `> Generado automáticamente al finalizar el temporizador de evaluación.\n\n`;
-                  reportContent += `| Estudiante | Fecha y Hora | Archivo / Ejercicio | Velocidad Detectada |\n`;
-                  reportContent += `| :--- | :--- | :--- | :--- |\n`;
-                }
-
-                data.plagiarismHistory.forEach((infraccion) => {
-                  reportContent += `| **${data.name}** | \`${infraccion.timestamp}\` | \`${infraccion.file}\` | ⚠️ **${infraccion.wpm} WPM** (Copy-Paste) |\n`;
-                });
-
-                await vscode.workspace.fs.writeFile(reportFileUri, Buffer.from(reportContent, 'utf8'));
-                console.log(`[CodeSync Auditoría]: Bitácora de plagio actualizada para ${data.name}`);
+              // Reporte de Foco
+              reportContent += `## ⏱️ Telemetría de Foco en VS Code\n`;
+              if (data.focusStats) {
+                const actMins = Math.floor(data.focusStats.activeMs / 60000);
+                const actSecs = Math.floor((data.focusStats.activeMs % 60000) / 1000);
+                const inactMins = Math.floor(data.focusStats.inactiveMs / 60000);
+                const inactSecs = Math.floor((data.focusStats.inactiveMs % 60000) / 1000);
+                reportContent += `- **Tiempo Activo (Focus):** ${actMins}m ${actSecs}s\n`;
+                reportContent += `- **Tiempo Inactivo (Background):** ${inactMins}m ${inactSecs}s\n\n`;
+              } else {
+                reportContent += `_Sin datos de foco disponibles._\n\n`;
               }
+
+              // Reporte de Capturas Automáticas
+              reportContent += `## 📸 Monitoreo de Hardware\n`;
+              reportContent += `- Las capturas de pantalla tomadas durante el periodo de prueba se encuentran adjuntas en el directorio \`/Capturas\` de esta misma entrega.\n\n`;
+
+              // Reporte de Plagio
+              reportContent += `## ⚠️ Historial de Plagio (Copy-Paste)\n`;
+              if (data.plagiarismHistory && data.plagiarismHistory.length > 0) {
+                reportContent += `| Fecha y Hora | Archivo / Ejercicio | Velocidad Detectada |\n`;
+                reportContent += `| :--- | :--- | :--- |\n`;
+                data.plagiarismHistory.forEach((infraccion) => {
+                  reportContent += `| \`${infraccion.timestamp}\` | \`${infraccion.file}\` | **${infraccion.wpm} WPM** |\n`;
+                });
+              } else {
+                reportContent += `_No se detectaron comportamientos anómalos de escritura._\n`;
+              }
+
+              await vscode.workspace.fs.writeFile(reportFileUri, Buffer.from(reportContent, 'utf8'));
+              console.log(`[CodeSync Auditoría]: Reporte individual creado para ${data.name}`);
+
             } catch (e) {
               vscode.window.showErrorMessage(`Error fatal al escribir snapshot de ${data.name}`);
             }
@@ -435,9 +519,7 @@ export class SocketManager {
     );
   }
 
-  // =================================================================
-  // ♻️ CAPA 5: RESILIENCIA, RECUPERACIÓN REACTIVA E INMORTALIDAD 🛡️
-  // =================================================================
+  // Resilience and Recovery Listeners
   private setupResilienceAndRecoveryListeners() {
     this.socket.on('timer-registered-on-teacher', (data: { targetEndTimestamp: number }) => {
       this.roomTargetEndTimestamp = data.targetEndTimestamp;
@@ -467,9 +549,7 @@ export class SocketManager {
     });
   }
 
-  // =================================================================
-  // ⚙️ MÉTODOS AUXILIARES DE CONTROL Y ORQUESTACIÓN INTERNA
-  // =================================================================
+  // Helper Methods
   private startCountdown(minutes: number) {
     this.stopCountdown();
     let timeLeft = Math.floor(minutes * 60);
@@ -535,6 +615,14 @@ export class SocketManager {
 
     const config = vscode.workspace.getConfiguration('codeSync');
     const accessKey = config.get<string>('teacherKey') || '';
+
+    if (role === 'teacher' && !accessKey) {
+      vscode.window.showErrorMessage('Error: Clave de acceso de docente no configurada en los ajustes.');
+      setTimeout(() => {
+        vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }, 1000);
+      return;
+    }
 
     this.socket.emit('join-room', { roomId, name, role, accessKey });
   }

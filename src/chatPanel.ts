@@ -102,6 +102,15 @@ export class CodeSyncChatPanel {
                     const input = document.getElementById('msgInput');
                     const selector = document.getElementById('targetSelect');
 
+                    function escapeHtml(unsafe) {
+                        return (unsafe || '').toString()
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                    }
+
                     window.addEventListener('message', event => {
                         const data = event.data;
                         
@@ -117,14 +126,17 @@ export class CodeSyncChatPanel {
                                 prefix = '<span class="private-badge">🔒 PRIVADO</span>';
                             }
 
+                            const safeSender = escapeHtml(data.sender);
+                            const safeTime = escapeHtml(data.timestamp);
+
                             if (data.role === 'teacher') {
-                                nameTag = \`<span class="tag-profe">\${data.senderId === data.myOpenId ? 'Tú (Profe)' : data.sender}:</span>\`;
+                                nameTag = \`<span class="tag-profe">\${data.senderId === data.myOpenId ? 'Tú (Profe)' : safeSender}:</span>\`;
                             } else {
-                                // Alumnos tienen comportamiento clicable para el Profe
-                                nameTag = \`<span class="tag-alumno" data-id="\${data.senderId}" data-name="\${data.sender}">\${data.senderId === data.myOpenId ? 'Tú' : data.sender}:</span>\`;
+                                nameTag = \`<span class="tag-alumno" data-id="\${escapeHtml(data.senderId)}" data-name="\${safeSender}">\${data.senderId === data.myOpenId ? 'Tú' : safeSender}:</span>\`;
                             }
 
-                            div.innerHTML = \`<span class="timestamp">[\${data.timestamp}]</span>\${prefix}\${nameTag} \${data.message}\`;
+                            div.innerHTML = \`<span class="timestamp">[\${safeTime}]</span>\${prefix}\${nameTag} <span class="chat-text"></span>\`;
+                            div.querySelector('.chat-text').innerText = data.message;
                             container.appendChild(div);
                             container.scrollTop = container.scrollHeight;
 

@@ -22,7 +22,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
     const cachedContent = this.contentMap.get(uri.toString());
 
     if (cachedContent === undefined) {
-      console.log(`[CodeSync Provider]: Solicitando contenido inicial para: ${uri.path}`);
+      // console.log(`[CodeSync Provider]: Solicitando contenido inicial para: ${uri.path}`);
 
       this.requestInitialContent(uri);
 
@@ -43,7 +43,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
   public updateContent(uri: vscode.Uri, content: string): void {
     this.contentMap.set(uri.toString(), content);
     this._onDidChange.fire(uri);
-    console.log(`[CodeSync Provider]: Contenido actualizado para: ${uri.path}`);
+    // console.log(`[CodeSync Provider]: Contenido actualizado para: ${uri.path}`);
   }
 
   /**
@@ -61,12 +61,9 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
           purgedCount++;
         }
       } catch (error) {
-        console.error(`[CodeSync Provider]: Error al parsear URI del caché durante purga: ${key}`);
+        // Error silenciado
       }
     }
-    console.log(
-      `[CodeSync Provider]: Limpieza de memoria completada: ${purgedCount} archivos eliminados de ${studentId}`,
-    );
   }
 
   /**
@@ -74,7 +71,7 @@ export class CodeSyncProvider implements vscode.TextDocumentContentProvider {
    */
   public clearAll(): void {
     this.contentMap.clear();
-    console.log('[CodeSync Provider]: Caché de archivos vaciado por cambio de sesión.');
+    // console.log('[CodeSync Provider]: Caché de archivos vaciado por cambio de sesión.');
   }
 
   /**

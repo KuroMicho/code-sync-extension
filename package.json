@@ -4,7 +4,7 @@
   "icon": "assets/icon.png",
   "displayName": "code-sync-extension",
   "description": "code sync",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "engines": {
     "vscode": "^1.121.0"
   },
@@ -63,19 +63,9 @@
         "icon": "$(browser)"
       },
       {
-        "command": "code-sync.sendActiveFileToAll",
-        "title": "CodeSync: Enviar archivo actual a TODOS",
+        "command": "code-sync.sendWorkspaceToAll",
+        "title": "🚀 CodeSync: Distribuir Archivos a Todos",
         "icon": "$(cloud-upload)"
-      },
-      {
-        "command": "code-sync.sendActiveFileToStudent",
-        "title": "CodeSync: Enviar archivo actual a este estudiante",
-        "icon": "$(cloud-upload)"
-      },
-      {
-        "command": "code-sync.sendAllTabsToAll",
-        "title": "🚀 CodeSync: Enviar todas las pestañas a la clase",
-        "icon": "$(repo-push)"
       },
       {
         "command": "code-sync.startTimer",
@@ -101,19 +91,17 @@
         "title": "Marcar como Atendido"
       },
       {
+        "command": "code-sync.kickStudent",
+        "title": "Expulsar Estudiante",
+        "icon": "$(sync-ignored)"
+      },
+      {
         "command": "code-sync.reopenWebPanel",
         "title": "🖥️ CodeSync: Iniciar Desafíos",
         "icon": "$(browser)"
       }
     ],
     "menus": {
-      "editor/title": [
-        {
-          "command": "code-sync.sendActiveFileToAll",
-          "when": "isCodeSyncTeacher",
-          "group": "navigation"
-        }
-      ],
       "view/title": [
         {
           "command": "code-sync.joinRoom",
@@ -151,7 +139,7 @@
           "group": "2_challenge@2"
         },
         {
-          "command": "code-sync.sendAllTabsToAll",
+          "command": "code-sync.sendWorkspaceToAll",
           "when": "view == studentsList && isCodeSyncTeacher",
           "group": "3_sync"
         },
@@ -169,17 +157,17 @@
       "view/item/context": [
         {
           "command": "code-sync.previewHtml",
-          "when": "view == studentsList && viewItem == file",
-          "group": "inline"
-        },
-        {
-          "command": "code-sync.sendActiveFileToStudent",
-          "when": "view == studentsList && viewItem == student",
+          "when": "view == studentsList && viewItem == file-html",
           "group": "inline"
         },
         {
           "command": "code-sync.resolveHelp",
           "when": "view == studentsList && viewItem == student-help",
+          "group": "inline"
+        },
+        {
+          "command": "code-sync.kickStudent",
+          "when": "view == studentsList && viewItem =~ /student.*/",
           "group": "inline"
         }
       ]

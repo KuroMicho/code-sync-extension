@@ -5,124 +5,132 @@ import * as vscode from 'vscode';
  * Renderiza en tiempo real el WPM, estado de enfoque, solicitudes de ayuda, alertas de plagio y capturas de monitor.
  */
 export class CodeSyncDashboard {
-  public static currentPanel: CodeSyncDashboard | undefined;
-  private readonly _panel: vscode.WebviewPanel;
-  private _studentsData = new Map<string, any>();
+    public static currentPanel: CodeSyncDashboard | undefined;
+    private readonly _panel: vscode.WebviewPanel;
+    private _studentsData = new Map<string, any>();
 
-  private constructor(panel: vscode.WebviewPanel) {
-    this._panel = panel;
-    this._panel.onDidDispose(() => {
-      CodeSyncDashboard.currentPanel = undefined;
-    });
-    this._panel.webview.html = this._getHtml();
-  }
-
-  public static createOrShow() {
-    if (CodeSyncDashboard.currentPanel) {
-      CodeSyncDashboard.currentPanel._panel.reveal(vscode.ViewColumn.One);
-      return;
-    }
-
-    const panel = vscode.window.createWebviewPanel(
-      'codesyncDashboard',
-      '📊 CODESYNC :: MONITOR_SALA',
-      vscode.ViewColumn.One,
-      { enableScripts: true, retainContextWhenHidden: true },
-    );
-
-    CodeSyncDashboard.currentPanel = new CodeSyncDashboard(panel);
-
-    panel.webview.postMessage({ command: 'trigger-initial-sync' });
-  }
-
-  /**
-   * Procesa la telemetría entrante del socket y refresca la UI de la cuadrícula.
-   */
-  public updateTelemetry(data: any) {
-    // CASO A: Gestión inteligente de desconexiones
-    if (data.disconnected || (data.role === 'student-web' && data.socketId)) {
-      const targetName = data.studentName;
-
-      if (data.role === 'student-web' && targetName) {
-        for (const [id, student] of this._studentsData.entries()) {
-          if (student.name === targetName) {
-            this._studentsData.set(id, { ...student, screenLinked: false });
-            break;
-          }
-        }
-      } else {
-        const idToRemove = data.socketId || data.studentId;
-        if (idToRemove) this._studentsData.delete(idToRemove);
-      }
-
-      this._render();
-      return;
-    }
-
-    // CASO B: Vinculación o recarga desde la PÁGINA WEB del alumno
-    if (data.studentName && !data.studentId) {
-      let enlazado = false;
-
-      for (const [id, student] of this._studentsData.entries()) {
-        if (student.name === data.studentName) {
-          this._studentsData.set(id, { ...student, screenLinked: true });
-          enlazado = true;
-          break;
-        }
-      }
-
-      if (!enlazado) {
-        const virtualId = `web-${data.studentName.replace(/\s+/g, '-').toLowerCase()}`;
-        this._studentsData.set(virtualId, {
-          studentId: virtualId,
-          name: data.studentName,
-          screenLinked: true,
-          wpm: 0,
-          isFocused: true,
-          isAskingHelp: false,
-          isCopyPaste: false,
-          activeFilePath: '',
-          ultimoCodigoPicado: '',
+    private constructor(panel: vscode.WebviewPanel) {
+        this._panel = panel;
+        this._panel.onDidDispose(() => {
+            CodeSyncDashboard.currentPanel = undefined;
         });
-      }
-    }
-    // CASO C: Telemetría pura desde la extensión de VS Code
-    else {
-      if (data.role === 'student-web' || (!data.studentId && !data.id)) return;
-
-      const id = data.studentId || data.id;
-
-      const virtualId = `web-${data.name ? data.name.replace(/\s+/g, '-').toLowerCase() : ''}`;
-      let cachedWebLinked = false;
-      if (this._studentsData.has(virtualId)) {
-        cachedWebLinked = this._studentsData.get(virtualId).screenLinked;
-        this._studentsData.delete(virtualId);
-      }
-
-      const prevData = this._studentsData.get(id) || {};
-      const finalName = data.name && data.name !== 'Estudiante' ? data.name : prevData.name || 'Alumno Activo';
-
-      this._studentsData.set(id, {
-        ...prevData,
-        ...data,
-        studentId: id,
-        name: finalName,
-        screenLinked: data.screenLinked !== undefined ? data.screenLinked : prevData.screenLinked || cachedWebLinked,
-      });
+        this._panel.webview.html = this._getHtml();
     }
 
-    this._render();
-  }
+    public static createOrShow() {
+        if (CodeSyncDashboard.currentPanel) {
+            CodeSyncDashboard.currentPanel._panel.reveal(vscode.ViewColumn.One);
+            return;
+        }
 
-  private _render() {
-    this._panel.webview.postMessage({
-      command: 'render',
-      students: Array.from(this._studentsData.values()),
-    });
-  }
+        const panel = vscode.window.createWebviewPanel(
+            'codesyncDashboard',
+            '📊 CODESYNC :: MONITOR_SALA',
+            vscode.ViewColumn.One,
+            { enableScripts: true, retainContextWhenHidden: true },
+        );
 
-  private _getHtml() {
-    return `
+        CodeSyncDashboard.currentPanel = new CodeSyncDashboard(panel);
+
+        panel.webview.postMessage({ command: 'trigger-initial-sync' });
+    }
+
+    /**
+     * Procesa la telemetría entrante del socket y refresca la UI de la cuadrícula.
+     */
+    public updateTelemetry(data: any) {
+        // CASO A: Gestión inteligente de desconexiones
+        if (data.disconnected || (data.role === 'student-web' && data.socketId)) {
+            const targetName = data.studentName;
+
+            if (data.role === 'student-web' && targetName) {
+                for (const [id, student] of this._studentsData.entries()) {
+                    if (student.name === targetName) {
+                        this._studentsData.set(id, { ...student, screenLinked: false });
+                        break;
+                    }
+                }
+            } else {
+                const idToRemove = data.socketId || data.studentId;
+                if (idToRemove) this._studentsData.delete(idToRemove);
+            }
+
+            this._render();
+            return;
+        }
+
+        // CASO B: Vinculación o recarga desde la PÁGINA WEB del alumno
+        if (data.studentName && !data.studentId) {
+            let enlazado = false;
+
+            for (const [id, student] of this._studentsData.entries()) {
+                if (student.name === data.studentName) {
+                    this._studentsData.set(id, { ...student, screenLinked: true });
+                    enlazado = true;
+                    break;
+                }
+            }
+
+            if (!enlazado) {
+                const virtualId = `web-${data.studentName.replace(/\s+/g, '-').toLowerCase()}`;
+                this._studentsData.set(virtualId, {
+                    studentId: virtualId,
+                    name: data.studentName,
+                    screenLinked: true,
+                    wpm: 0,
+                    isFocused: true,
+                    isAskingHelp: false,
+                    isCopyPaste: false,
+                    activeFilePath: '',
+                    ultimoCodigoPicado: '',
+                });
+            }
+        }
+        // CASO C: Telemetría pura desde la extensión de VS Code
+        else {
+            if (data.role === 'student-web' || (!data.studentId && !data.id)) return;
+
+            const id = data.studentId || data.id;
+
+            const virtualId = `web-${data.name ? data.name.replace(/\s+/g, '-').toLowerCase() : ''}`;
+            let cachedWebLinked = false;
+            let cachedRoomId = data.roomId || 'Sin Sala';
+            if (this._studentsData.has(virtualId)) {
+                cachedWebLinked = this._studentsData.get(virtualId).screenLinked;
+                this._studentsData.delete(virtualId);
+            }
+
+            const prevData = this._studentsData.get(id) || {};
+            const finalName = data.name && data.name !== 'Estudiante' ? data.name : prevData.name || 'Alumno Activo';
+
+            this._studentsData.set(id, {
+                ...prevData,
+                ...data,
+                roomId: data.roomId || prevData.roomId || cachedRoomId,
+                studentId: id,
+                name: finalName,
+                screenLinked: data.screenLinked !== undefined ? data.screenLinked : prevData.screenLinked || cachedWebLinked,
+            });
+        }
+
+        this._render();
+    }
+
+    private _renderTimeout: NodeJS.Timeout | undefined;
+
+    private _render() {
+        if (this._renderTimeout) clearTimeout(this._renderTimeout);
+        this._renderTimeout = setTimeout(() => {
+            if (!this._panel) return;
+            this._panel.webview.postMessage({
+                command: 'render',
+                students: Array.from(this._studentsData.values()),
+            });
+        }, 300);
+    }
+
+    private _getHtml() {
+        return `
             <!DOCTYPE html>
             <html lang="es">
             <head>
@@ -134,20 +142,33 @@ export class CodeSyncDashboard {
                         user-select: none; box-sizing: border-box; margin: 0;
                     }
                     .dashboard-container { padding: 20px; }
-                    h2 { border-bottom: 2px solid #1a1a24; padding-bottom: 10px; margin-top: 0; margin-bottom: 25px; letter-spacing: 1px; }
+                    .nav-header {
+                        display: flex; justify-content: space-between; align-items: center;
+                        border-bottom: 2px solid #1a1a24; padding-bottom: 15px; margin-bottom: 25px; flex-wrap: wrap; gap: 15px;
+                    }
+                    .nav-header h2 { margin: 0; border: none; padding: 0; letter-spacing: 1px; }
+                    .tabs {
+                        display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; flex: 1; justify-content: flex-end;
+                    }
+                    .tab-btn {
+                        background: #0f0f15; border: 1px solid #00ffcc33; color: #8a8a9d;
+                        padding: 8px 16px; border-radius: 6px; cursor: pointer;
+                        font-family: 'Courier New', monospace; font-weight: bold;
+                        transition: all 0.2s ease; white-space: nowrap;
+                    }
+                    .tab-btn:hover { border-color: #00ffcc; color: #00ffcc; }
+                    .tab-btn.active { background: #00ffcc22; border-color: #00ffcc; color: #00ffcc; box-shadow: 0 0 10px rgba(0,255,204,0.3); }
                     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
                     
                     .card { 
                         background: #0f0f15; border: 1px solid #00ffcc33; padding: 16px; 
                         border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); 
-                        transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s ease, box-shadow 0.2s ease; 
+                        transition: border-color 0.2s ease, box-shadow 0.2s ease; 
                         cursor: pointer; position: relative; overflow: hidden;
                         display: flex; flex-direction: column; justify-content: space-between;
-                        will-change: transform; /* Fuerza la aceleración gráfica por GPU en el Webview */
                     }
                     
                     .card:hover { 
-                        transform: translateY(-4px); 
                         border-color: #00ffcc; 
                         box-shadow: 0 6px 20px rgba(0, 255, 204, 0.15); 
                     }
@@ -224,7 +245,10 @@ export class CodeSyncDashboard {
             </head>
             <body>
                 <div class="dashboard-container">
-                    <h2>📟 PANEL DE CONTROL CENTRAL // TELEMETRÍA_DE_AULA_ACTIVA</h2>
+                    <div class="nav-header">
+                        <h2>📟 PANEL DE CONTROL CENTRAL // TELEMETRÍA GLOBAL</h2>
+                        <div class="tabs" id="room-tabs"></div>
+                    </div>
                     <div class="grid" id="grid"></div>
                 </div>
 
@@ -267,97 +291,151 @@ export class CodeSyncDashboard {
                         }
 
                         if (message.command === 'render') {
-                            grid.innerHTML = '';
+                            const students = message.students;
+                            const roomsMap = new Map();
                             
-                            message.students.forEach(s => {
-                                const card = document.createElement('div');
-                                card.className = 'card';
-                                card.setAttribute('data-id', s.studentId);
-                                
-                                let statusBadge = '<span class="badge online">ACTIVO</span>';
-                                if (!s.isFocused) {
-                                    card.className += ' unfocused';
-                                    statusBadge = '<span class="badge away">FUERA_VS</span>';
-                                }
-                                if (s.isAskingHelp) {
-                                    card.className += ' asking-help';
-                                    statusBadge = '<span class="badge alert">🙋‍♂️ AYUDA</span>';
-                                }
-                                if (s.isCopyPaste) {
-                                    card.className = 'card plagiarism-alert';
-                                    statusBadge = '<span class="badge danger">⚠️ COPY_PASTE</span>';
-                                }
-
-                                const badgeWeb = s.screenLinked 
-                                    ? '<span class="badge web-linked">🖥️ ENLAZADO</span>' 
-                                    : '<span class="badge web-unlinked">❌ SIN WEB</span>';
-
-                                const botonCaptura = s.screenLinked
-                                    ? '<button class="btn-capturar">📸 CAPTURAR MONITOR</button>'
-                                    : '<button class="btn-capturar" style="opacity: 0.3; cursor: not-allowed; border-color: #444; color: #666;" disabled>PANTALLA DESCONECTADA</button>';
-
-                                const currentWpm = s.wpm !== undefined ? s.wpm : 0;
-                                let wpmColor = '#00ffcc';
-                                if (currentWpm > 150) wpmColor = '#ff0033';
-                                if (currentWpm === 0) wpmColor = '#555577';
-
-                                const rawPath = s.activeFilePath || '';
-                                const fileName = (rawPath && rawPath.includes('/')) ? rawPath.split('/').pop() : (rawPath || 'Ninguno');
-
-                                card.innerHTML = \`
-                                    <div>
-                                        <div class="name" title="\${s.name}">\${s.name}</div>
-                                        <div class="metrics">
-                                            <div class="metric-line">
-                                                <span>Rendimiento:</span>
-                                                <span style="color: \${wpmColor}" class="metric-val">\${currentWpm} WPM</span>
-                                            </div>
-                                            <div class="metric-line">
-                                                <span>Editando:</span>
-                                                <span style="color: #deff9a; font-size: 0.85em;" class="metric-val">\${fileName}</span>
-                                            </div>
-                                            <div class="metric-line">
-                                                <span>Estado Red:</span>
-                                                <span class="metric-val">\${statusBadge}</span>
-                                            </div>
-                                            <div class="metric-line">
-                                                <span>Enlace Web:</span>
-                                                <span class="metric-val">\${badgeWeb}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="card-actions">
-                                        \${botonCaptura}
-                                        <div style="font-size: 0.7em; color: #333; text-align: right; margin-top: 8px;">NODO_ID: \${s.studentId.substring(0,6)}</div>
-                                    </div>
-                                \`;
-                                
-                                const btn = card.querySelector('.btn-capturar');
-                                if (btn && s.screenLinked) {
-                                    btn.addEventListener('click', (event) => {
-                                        event.stopPropagation();
-                                        vscode.postMessage({
-                                            command: 'requestScreenshot',
-                                            studentName: s.name
-                                        });
-                                    });
-                                }
-
-                                card.addEventListener('click', () => {
-                                    if(s.studentId.startsWith('web-')) return;
-                                    
-                                    vscode.postMessage({
-                                        command: 'openStudent',
-                                        studentId: s.studentId,
-                                        filePath: s.activeFilePath || "index.html"
-                                    });
-                                });
-                                
-                                grid.appendChild(card);
+                            students.forEach(s => {
+                                const rId = s.roomId || 'Sin Sala';
+                                if (!roomsMap.has(rId)) roomsMap.set(rId, []);
+                                roomsMap.get(rId).push(s);
                             });
+
+                            const roomIds = Array.from(roomsMap.keys()).sort();
+                            
+                            if (!window.activeRoomId && roomIds.length > 0) {
+                                window.activeRoomId = roomIds[0];
+                            } else if (roomIds.length > 0 && !roomsMap.has(window.activeRoomId)) {
+                                window.activeRoomId = roomIds[0];
+                            }
+
+                            const tabsContainer = document.getElementById('room-tabs');
+                            tabsContainer.innerHTML = '';
+                            
+                            if (roomIds.length === 0) {
+                                tabsContainer.innerHTML = '<span style="color:#555">Sin salas activas</span>';
+                                grid.innerHTML = '';
+                                return;
+                            }
+
+                            roomIds.forEach(rId => {
+                                const count = roomsMap.get(rId).length;
+                                const btn = document.createElement('button');
+                                btn.className = 'tab-btn' + (rId === window.activeRoomId ? ' active' : '');
+                                btn.innerText = 'SALA: ' + rId + ' (' + count + ')';
+                                btn.onclick = () => {
+                                    window.activeRoomId = rId;
+                                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                                    btn.classList.add('active');
+                                    renderGrid(roomsMap.get(rId) || []);
+                                };
+                                tabsContainer.appendChild(btn);
+                            });
+
+                            renderGrid(roomsMap.get(window.activeRoomId) || []);
                         }
                     });
 
+                    function escapeHtml(unsafe) {
+                        return (unsafe || '').toString()
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                    }
+
+                    function renderGrid(studentsToShow) {
+                        grid.innerHTML = '';
+                        studentsToShow.forEach(s => {
+                            const card = document.createElement('div');
+                            card.className = 'card';
+                            card.setAttribute('data-id', escapeHtml(s.studentId));
+                            
+                            let statusBadge = '<span class="badge online">ACTIVO</span>';
+                            if (!s.isFocused) {
+                                card.className += ' unfocused';
+                                statusBadge = '<span class="badge away">FUERA_VS</span>';
+                            }
+                            if (s.isAskingHelp) {
+                                card.className += ' asking-help';
+                                statusBadge = '<span class="badge alert">🙋‍♂️ AYUDA</span>';
+                            }
+                            if (s.isCopyPaste) {
+                                card.className = 'card plagiarism-alert';
+                                statusBadge = '<span class="badge danger">⚠️ COPY_PASTE</span>';
+                            }
+
+                            const badgeWeb = s.screenLinked 
+                                ? '<span class="badge web-linked">🖥️ ENLAZADO</span>' 
+                                : '<span class="badge web-unlinked">❌ SIN WEB</span>';
+
+                            const botonCaptura = s.screenLinked
+                                ? '<button class="btn-capturar">📸 CAPTURAR MONITOR</button>'
+                                : '<button class="btn-capturar" style="opacity: 0.3; cursor: not-allowed; border-color: #444; color: #666;" disabled>PANTALLA DESCONECTADA</button>';
+
+                            const currentWpm = s.wpm !== undefined ? s.wpm : 0;
+                            let wpmColor = '#00ffcc';
+                            if (currentWpm > 150) wpmColor = '#ff0033';
+                            if (currentWpm === 0) wpmColor = '#555577';
+
+                            const rawPath = s.activeFilePath || '';
+                            const fileName = escapeHtml((rawPath && rawPath.includes('/')) ? rawPath.split('/').pop() : (rawPath || 'Ninguno'));
+                            const safeName = escapeHtml(s.name);
+                            const safeId = escapeHtml(s.studentId);
+
+                            card.innerHTML = \`
+                                <div>
+                                    <div class="name" title="\${safeName}">\${safeName}</div>
+                                    <div class="metrics">
+                                        <div class="metric-line">
+                                            <span>Rendimiento:</span>
+                                            <span style="color: \${wpmColor}" class="metric-val">\${currentWpm} WPM</span>
+                                        </div>
+                                        <div class="metric-line">
+                                            <span>Editando:</span>
+                                            <span style="color: #deff9a; font-size: 0.85em;" class="metric-val">\${fileName}</span>
+                                        </div>
+                                        <div class="metric-line">
+                                            <span>Estado Red:</span>
+                                            <span class="metric-val">\${statusBadge}</span>
+                                        </div>
+                                        <div class="metric-line">
+                                            <span>Enlace Web:</span>
+                                            <span class="metric-val">\${badgeWeb}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    \${botonCaptura}
+                                    <div style="font-size: 0.7em; color: #333; text-align: right; margin-top: 8px;">NODO_ID: \${safeId.substring(0,6)}</div>
+                                </div>
+                            \`;
+                            
+                            const btn = card.querySelector('.btn-capturar');
+                            if (btn && s.screenLinked) {
+                                btn.addEventListener('click', (event) => {
+                                    event.stopPropagation();
+                                    vscode.postMessage({
+                                        command: 'requestScreenshot',
+                                        studentName: s.name,
+                                        roomId: s.roomId
+                                    });
+                                });
+                            }
+
+                            card.addEventListener('click', () => {
+                                if(s.studentId.startsWith('web-')) return;
+                                
+                                vscode.postMessage({
+                                    command: 'openStudent',
+                                    studentId: s.studentId,
+                                    filePath: s.activeFilePath || "index.html"
+                                });
+                            });
+                            
+                            grid.appendChild(card);
+                        });
+                    }
                     function cerrarModal() {
                         document.getElementById('modal-visor').classList.add('oculto-modal');
                         const mapaImagen = document.getElementById('modal-imagen');
@@ -375,5 +453,5 @@ export class CodeSyncDashboard {
                 </script>
             </body>
             </html>`;
-  }
+    }
 }
